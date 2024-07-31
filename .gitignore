@@ -1,0 +1,36 @@
+# Ignore .env file
+.env
+
+# Ignore requirements.txt
+requirements.txt
+
+# Ignore Python bytecode
+__pycache__/
+*.py[cod]
+
+# Ignore virtual environment
+venv/
+env/
+
+# Ignore OS generated files
+.DS_Store
+Thumbs.db
+
+# Ignore IDE specific files
+.vscode/
+.idea/
+
+# Ignore log files
+*.log
+
+# Ignore temporary files
+*.tmp
+
+# Ignore database files
+*.db
+*.sqlite3
+
+# ไฟล์ที่ไม่ต้องการให้ Git ติดตาม
+app_copy.py
+database_handler.py
+document_loader.py
