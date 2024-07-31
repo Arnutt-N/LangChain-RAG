@@ -2,7 +2,7 @@
 .env
 
 # Ignore requirements.txt
-requirements.txt
+
 
 # Ignore Python bytecode
 __pycache__/
