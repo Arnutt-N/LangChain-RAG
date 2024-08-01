@@ -15,11 +15,15 @@ import tempfile
 # Set page configuration
 st.set_page_config(layout="wide", page_title="Gen AI : RAG Chatbot with Documents")
 
-# Load environment variables
-load_dotenv()
+# Retrieve the API key from Streamlit secrets
+api_key = st.secrets.get("OPENAI_API_KEY")
 
-# Set OpenAI API key
-os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
+# Ensure the script stops execution if the API key is not set
+if not api_key:
+    st.error("OPENAI_API_KEY is not set. Please set it in the Streamlit Cloud secrets.")
+    st.stop()
+else:
+    os.environ["OPENAI_API_KEY"] = api_key
 
 # Translations
 translations = {
@@ -131,6 +135,8 @@ def load_documents(file_paths, uploaded_files):
 
 # Process documents
 def process_documents(documents):
+    if not documents:
+        return None
     text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=0)
     texts = text_splitter.split_documents(documents)
     embeddings = OpenAIEmbeddings()
@@ -230,7 +236,7 @@ def main():
         
         if new_language != st.session_state.language:
             st.session_state.language = new_language
-            st.query_params["language"] = new_language
+            st.experimental_set_query_params(language=new_language)
             st.rerun()
         
         # Spacer between language selection and file uploader
@@ -278,30 +284,34 @@ def main():
             st.write(f"- {file}")
 
     # Chat interface
-    if st.session_state.vectorstore is None:
+    if st.session_state.vectorstore is None and (st.session_state.local_files or st.session_state.uploaded_files):
         documents = load_documents(st.session_state.local_files, st.session_state.uploaded_files)
         st.session_state.vectorstore = process_documents(documents)
 
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
+    if st.session_state.vectorstore:
+        for message in st.session_state.messages:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
 
-    if prompt := st.chat_input(t["ask_placeholder"]):
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
+        if prompt := st.chat_input(t["ask_placeholder"]):
+            st.session_state.messages.append({"role": "user", "content": prompt})
+            with st.chat_message("user"):
+                st.markdown(prompt)
 
-        with st.chat_message("assistant"):
-            retrieval_chain = setup_retrieval_chain(st.session_state.vectorstore)
-            with st.spinner(t["thinking"]):
-                response = retrieval_chain({"question": prompt})
-            st.markdown(response['answer'])
-            st.session_state.messages.append({"role": "assistant", "content": response['answer']})
+            with st.chat_message("assistant"):
+                retrieval_chain = setup_retrieval_chain(st.session_state.vectorstore)
+                with st.spinner(t["thinking"]):
+                    response = retrieval_chain({"question": prompt})
+                st.markdown(response['answer'])
+                st.session_state.messages.append({"role": "assistant", "content": response['answer']})
+
+    else:
+        st.write(t["welcome"])
 
     # Clear chat button
     if st.button(t["clear_chat"]):
         st.session_state.messages = []
-        clear_uploaded_files()
+        # Do not reset uploaded files and vectorstore to avoid reprocessing
         st.rerun()
 
     # Footer
@@ -311,6 +321,4 @@ def main():
     )
 
 if __name__ == "__main__":
-    if "language" in st.query_params:
-        st.session_state.language = st.query_params["language"]
     main()

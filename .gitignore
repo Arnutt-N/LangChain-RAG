@@ -1,8 +1,8 @@
+# Ignore folder
+.streamlit/
+
 # Ignore .env file
 .env
-
-# Ignore requirements.txt
-
 
 # Ignore Python bytecode
 __pycache__/
