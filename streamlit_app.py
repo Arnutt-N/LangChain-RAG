@@ -283,30 +283,35 @@ def main():
         for file in st.session_state.local_files:
             st.write(f"- {file}")
 
-    # Chat interface
+    # Ensure chat interface is always shown
     if st.session_state.vectorstore is None and (st.session_state.local_files or st.session_state.uploaded_files):
         documents = load_documents(st.session_state.local_files, st.session_state.uploaded_files)
         st.session_state.vectorstore = process_documents(documents)
 
-    if st.session_state.vectorstore:
-        for message in st.session_state.messages:
-            with st.chat_message(message["role"]):
-                st.markdown(message["content"])
+    chat_interface_visible = True
+    if not st.session_state.vectorstore and not (st.session_state.local_files or st.session_state.uploaded_files):
+        st.write(t["welcome"])
+        chat_interface_visible = False
 
-        if prompt := st.chat_input(t["ask_placeholder"]):
-            st.session_state.messages.append({"role": "user", "content": prompt})
-            with st.chat_message("user"):
-                st.markdown(prompt)
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
 
-            with st.chat_message("assistant"):
+    prompt = st.chat_input(t["ask_placeholder"])
+    if prompt:
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
+
+        with st.chat_message("assistant"):
+            if st.session_state.vectorstore:
                 retrieval_chain = setup_retrieval_chain(st.session_state.vectorstore)
                 with st.spinner(t["thinking"]):
                     response = retrieval_chain({"question": prompt})
                 st.markdown(response['answer'])
                 st.session_state.messages.append({"role": "assistant", "content": response['answer']})
-
-    else:
-        st.write(t["welcome"])
+            else:
+                st.markdown("No documents to process. Please upload documents first.")
 
     # Clear chat button
     if st.button(t["clear_chat"]):
