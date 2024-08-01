@@ -67,12 +67,20 @@ if "uploaded_files" not in st.session_state:
 def load_gitignore():
     patterns = []
     if os.path.exists('.gitignore'):
-        with open('.gitignore', 'r') as file:
-            patterns = file.read().splitlines()
+        encodings = ['utf-8', 'cp874', 'tis-620', 'windows-1252', 'latin-1']
+        for encoding in encodings:
+            try:
+                with open('.gitignore', 'r', encoding=encoding) as file:
+                    patterns = file.read().splitlines()
+                break  # If successful, exit the loop
+            except UnicodeDecodeError:
+                continue  # If unsuccessful, try the next encoding
     return patterns
 
 # Function to check if a file should be ignored
 def should_ignore(filename, patterns):
+    if filename == 'requirements.txt':
+        return True
     for pattern in patterns:
         if fnmatch.fnmatch(filename, pattern):
             return True
@@ -82,6 +90,8 @@ def should_ignore(filename, patterns):
 def load_documents(file_paths, uploaded_files):
     documents = []
     for file_path in file_paths:
+        if file_path == 'requirements.txt':
+            continue
         if file_path.endswith('.pdf'):
             loader = PyPDFLoader(file_path)
         elif file_path.endswith('.csv'):
@@ -143,7 +153,7 @@ def clear_uploaded_files():
 # Function to refresh local files
 def refresh_local_files():
     ignore_patterns = load_gitignore()
-    st.session_state.local_files = [f for f in os.listdir('.') if f.endswith(('.pdf', '.csv', '.txt', '.xlsx', '.xls')) and not should_ignore(f, ignore_patterns)]
+    st.session_state.local_files = [f for f in os.listdir('.') if f.endswith(('.pdf', '.csv', '.txt', '.xlsx', '.xls')) and not should_ignore(f, ignore_patterns) and f != 'requirements.txt']
 
 def main():
     if "language" in st.query_params:

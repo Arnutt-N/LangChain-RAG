@@ -106,3 +106,4 @@ watchdog==4.0.1
 wheel==0.43.0
 wrapt==1.16.0
 yarl==1.9.4
+chardet
