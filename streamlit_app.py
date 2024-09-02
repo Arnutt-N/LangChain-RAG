@@ -222,42 +222,44 @@ def main():
     """, unsafe_allow_html=True)
 
     # Sidebar
-    with st.sidebar:
-        # Language selection moved to the top
-        st.markdown(f"<div class='sidebar-label'>{t['language']}</div>", unsafe_allow_html=True)
-       selected_lang = st.selectbox(
-    t["language"],  # Provide a label here
-    options=["ไทย", "English"], 
-    index=1 if st.session_state.language == "en" else 0, 
-    key="language_selection",
-    label_visibility="collapsed"  # Hide the label
-)
-        if selected_lang == "ไทย":
-    new_language = "th"
-else:
-    new_language = "en"
+with st.sidebar:
+    # Language selection moved to the top
+    st.markdown(f"<div class='sidebar-label'>{t['language']}</div>", unsafe_allow_html=True)
+    selected_lang = st.selectbox(
+        t["language"],  # Provide a label here
+        options=["ไทย", "English"], 
+        index=1 if st.session_state.language == "en" else 0, 
+        key="language_selection",
+        label_visibility="collapsed"  # Hide the label
+    )
 
-if new_language != st.session_state.language:
-    st.session_state.language = new_language
-    # Use st.query_params to set the query parameters
-    st.query_params.update({"language": new_language})
-    st.rerun()
-        
-        # Spacer between language selection and file uploader
-        st.markdown("<div class='spacer'></div>", unsafe_allow_html=True)
+    if selected_lang == "ไทย":
+        new_language = "th"
+    else:
+        new_language = "en"
 
-        # Add "Upload Documents" text above the file uploader with consistent styling
-        st.markdown(f"<div class='sidebar-label'>{t['upload_button']}</div>", unsafe_allow_html=True)
+    if new_language != st.session_state.language:
+        st.session_state.language = new_language
+        # Use st.query_params to set the query parameters
+        st.query_params.update({"language": new_language})
+        st.rerun()
+    
+    # Spacer between language selection and file uploader
+    st.markdown("<div class='spacer'></div>", unsafe_allow_html=True)
 
-        # File uploader with translated "Browse files" button
-        uploaded_files = st.file_uploader(
-    t["upload_button"],  # Provide a label here
-    accept_multiple_files=True, 
-    type=['pdf', 'csv', 'txt', 'xlsx', 'xls'], 
-    key="file_uploader",
-    label_visibility="collapsed",  # Hide the label
-    help=t["upload_button"]
-)
+    # Add "Upload Documents" text above the file uploader with consistent styling
+    st.markdown(f"<div class='sidebar-label'>{t['upload_button']}</div>", unsafe_allow_html=True)
+
+    # File uploader with translated "Browse files" button
+    uploaded_files = st.file_uploader(
+        t["upload_button"],  # Provide a label here
+        accept_multiple_files=True, 
+        type=['pdf', 'csv', 'txt', 'xlsx', 'xls'], 
+        key="file_uploader",
+        label_visibility="collapsed",  # Hide the label
+        help=t["upload_button"]
+    )
+
 
         # Custom "Browse files" button with correct translation
         st.markdown(
