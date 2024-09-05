@@ -147,10 +147,7 @@ def process_documents(documents):
 def setup_retrieval_chain(vectorstore):
     retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 3})
     memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
-    
-    # Specify the model name here
-    llm = ChatOpenAI(model_name="gpt-4o-mini", temperature=0)
-    
+    llm = ChatOpenAI(temperature=0)
     qa_chain = ConversationalRetrievalChain.from_llm(llm, retriever, memory=memory)
     return qa_chain
 
@@ -222,44 +219,41 @@ def main():
     """, unsafe_allow_html=True)
 
     # Sidebar
-with st.sidebar:
-    # Language selection moved to the top
-    st.markdown(f"<div class='sidebar-label'>{t['language']}</div>", unsafe_allow_html=True)
-    selected_lang = st.selectbox(
-        t["language"],  # Provide a label here
-        options=["ไทย", "English"], 
-        index=1 if st.session_state.language == "en" else 0, 
-        key="language_selection",
-        label_visibility="collapsed"  # Hide the label
-    )
+    with st.sidebar:
+        # Language selection moved to the top
+        st.markdown(f"<div class='sidebar-label'>{t['language']}</div>", unsafe_allow_html=True)
+        selected_lang = st.selectbox(
+            "", 
+            options=["ไทย", "English"], 
+            index=1 if st.session_state.language == "en" else 0, 
+            key="language_selection",
+            label_visibility="collapsed"
+        )
+        if selected_lang == "ไทย":
+            new_language = "th"
+        else:
+            new_language = "en"
+        
+        if new_language != st.session_state.language:
+            st.session_state.language = new_language
+            st.experimental_set_query_params(language=new_language)
+            st.rerun()
+        
+        # Spacer between language selection and file uploader
+        st.markdown("<div class='spacer'></div>", unsafe_allow_html=True)
 
-    if selected_lang == "ไทย":
-        new_language = "th"
-    else:
-        new_language = "en"
+        # Add "Upload Documents" text above the file uploader with consistent styling
+        st.markdown(f"<div class='sidebar-label'>{t['upload_button']}</div>", unsafe_allow_html=True)
 
-    if new_language != st.session_state.language:
-        st.session_state.language = new_language
-        # Use st.query_params to set the query parameters
-        st.query_params.update({"language": new_language})
-        st.rerun()
-    
-    # Spacer between language selection and file uploader
-    st.markdown("<div class='spacer'></div>", unsafe_allow_html=True)
-
-    # Add "Upload Documents" text above the file uploader with consistent styling
-    st.markdown(f"<div class='sidebar-label'>{t['upload_button']}</div>", unsafe_allow_html=True)
-
-    # File uploader with translated "Browse files" button
-    uploaded_files = st.file_uploader(
-        t["upload_button"],  # Provide a label here
-        accept_multiple_files=True, 
-        type=['pdf', 'csv', 'txt', 'xlsx', 'xls'], 
-        key="file_uploader",
-        label_visibility="collapsed",  # Hide the label
-        help=t["upload_button"]
-    )
-
+        # File uploader with translated "Browse files" button
+        uploaded_files = st.file_uploader(
+            "", 
+            accept_multiple_files=True, 
+            type=['pdf', 'csv', 'txt', 'xlsx', 'xls'], 
+            key="file_uploader",
+            label_visibility="collapsed",
+            help=t["upload_button"]
+        )
 
         # Custom "Browse files" button with correct translation
         st.markdown(
