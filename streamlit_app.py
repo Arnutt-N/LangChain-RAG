@@ -164,12 +164,19 @@ def refresh_local_files():
     ignore_patterns = load_gitignore()
     st.session_state.local_files = [f for f in os.listdir('.') if f.endswith(('.pdf', '.csv', '.txt', '.xlsx', '.xls')) and not should_ignore(f, ignore_patterns) and f != 'requirements.txt']
 
+# Function to handle query parameters manually
+def update_query_params(language):
+    query_params = st.experimental_get_query_params()
+    query_params["language"] = language
+    st.experimental_set_query_params(**query_params)
+
 def main():
-    if "language" in st.query_params:
-        st.session_state.language = st.query_params["language"]
+    if "language" in st.experimental_get_query_params():
+        st.session_state.language = st.experimental_get_query_params()["language"][0]
 
     t = translations[st.session_state.language]
 
+    # Custom CSS
     # Custom CSS
     st.markdown("""
         <style>
@@ -239,8 +246,8 @@ def main():
         
         if new_language != st.session_state.language:
             st.session_state.language = new_language
-            st.experimental_set_query_params(language=new_language)
-            st.rerun()
+            update_query_params(new_language)  # Update query params
+            st.experimental_rerun()
         
         # Spacer between language selection and file uploader
         st.markdown("<div class='spacer'></div>", unsafe_allow_html=True)
