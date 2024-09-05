@@ -164,17 +164,23 @@ def refresh_local_files():
     ignore_patterns = load_gitignore()
     st.session_state.local_files = [f for f in os.listdir('.') if f.endswith(('.pdf', '.csv', '.txt', '.xlsx', '.xls')) and not should_ignore(f, ignore_patterns) and f != 'requirements.txt']
 
-# Function to handle query parameters manually
+# Function to update query parameters using st.query_params
 def update_query_params(language):
-    query_params = st.experimental_get_query_params()
+    # Get the current query parameters
+    query_params = st.query_params
+
+    # Update or add the language query parameter
     query_params["language"] = language
-    st.experimental_set_query_params(**query_params)
+
+    # Redirect to update the URL with new query parameters
+    st.rerun()  # Use st.rerun instead of st.experimental_rerun
+
 
 def main():
     # Ensure query params are checked and set correctly
-    query_params = st.experimental_get_query_params()
+    query_params = st.query_params
     if "language" in query_params:
-        st.session_state.language = query_params["language"][0]
+        st.session_state.language = query_params["language"]
 
     t = translations[st.session_state.language]
 
