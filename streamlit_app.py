@@ -171,12 +171,13 @@ def update_query_params(language):
     st.experimental_set_query_params(**query_params)
 
 def main():
-    if "language" in st.experimental_get_query_params():
-        st.session_state.language = st.experimental_get_query_params()["language"][0]
+    # Ensure query params are checked and set correctly
+    query_params = st.experimental_get_query_params()
+    if "language" in query_params:
+        st.session_state.language = query_params["language"][0]
 
     t = translations[st.session_state.language]
 
-    # Custom CSS
     # Custom CSS
     st.markdown("""
         <style>
@@ -247,7 +248,6 @@ def main():
         if new_language != st.session_state.language:
             st.session_state.language = new_language
             update_query_params(new_language)  # Update query params
-            st.experimental_rerun()
         
         # Spacer between language selection and file uploader
         st.markdown("<div class='spacer'></div>", unsafe_allow_html=True)
@@ -327,13 +327,13 @@ def main():
     if st.button(t["clear_chat"]):
         st.session_state.messages = []
         # Do not reset uploaded files and vectorstore to avoid reprocessing
-        st.rerun()
 
     # Footer
     st.markdown(
         '<div class="footer">Created by Arnutt Noitumyae, 2024</div>',
         unsafe_allow_html=True
     )
+
 
 if __name__ == "__main__":
     main()
