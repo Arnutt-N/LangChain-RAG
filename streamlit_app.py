@@ -147,7 +147,10 @@ def process_documents(documents):
 def setup_retrieval_chain(vectorstore):
     retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 3})
     memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
-    llm = ChatOpenAI(temperature=0)
+    
+    # Specify the model name here
+    llm = ChatOpenAI(model_name="gpt-4o-mini", temperature=0)
+    
     qa_chain = ConversationalRetrievalChain.from_llm(llm, retriever, memory=memory)
     return qa_chain
 
