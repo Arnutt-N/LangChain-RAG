@@ -166,22 +166,15 @@ def refresh_local_files():
 
 # Function to update query parameters using st.query_params
 def update_query_params(language):
-    # Get the current query parameters
-    query_params = st.query_params
-
-    # Update or add the language query parameter
-    query_params["language"] = language
-
-    # Redirect to update the URL with new query parameters
-    st.rerun()  # Use st.rerun instead of st.experimental_rerun
+    st.session_state.language = language
+    st.query_params["language"] = language
 
 
 def main():
     # Ensure query params are checked and set correctly
-    query_params = st.query_params
-    if "language" in query_params:
-        st.session_state.language = query_params["language"]
-
+    if "language" in st.query_params:
+        st.session_state.language = st.query_params["language"]
+    
     t = translations[st.session_state.language]
 
     # Custom CSS
@@ -237,7 +230,6 @@ def main():
 
     # Sidebar
     with st.sidebar:
-        # Language selection moved to the top
         st.markdown(f"<div class='sidebar-label'>{t['language']}</div>", unsafe_allow_html=True)
         selected_lang = st.selectbox(
             "", 
@@ -246,14 +238,11 @@ def main():
             key="language_selection",
             label_visibility="collapsed"
         )
-        if selected_lang == "ไทย":
-            new_language = "th"
-        else:
-            new_language = "en"
+        new_language = "th" if selected_lang == "ไทย" else "en"
         
         if new_language != st.session_state.language:
-            st.session_state.language = new_language
-            update_query_params(new_language)  # Update query params
+            update_query_params(new_language)
+            st.rerun()
         
         # Spacer between language selection and file uploader
         st.markdown("<div class='spacer'></div>", unsafe_allow_html=True)
@@ -332,7 +321,7 @@ def main():
     # Clear chat button
     if st.button(t["clear_chat"]):
         st.session_state.messages = []
-        # Do not reset uploaded files and vectorstore to avoid reprocessing
+        st.rerun()
 
     # Footer
     st.markdown(
