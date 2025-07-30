@@ -281,7 +281,6 @@ def should_ignore_file(filepath, patterns):
     
     return False
 
-@st.cache_data
 def scan_local_files():
     """Scan repository for document files"""
     supported_extensions = ('.pdf', '.txt', '.csv', '.xlsx', '.xls', '.docx')
@@ -293,30 +292,65 @@ def scan_local_files():
         current_dir = os.getcwd()
         print(f"DEBUG: Scanning directory: {current_dir}")
         
+        # Create test files if none exist (for demo purposes)
+        test_files_created = []
+        if not any(f.endswith(supported_extensions) for f in os.listdir('.')):
+            try:
+                # Create a simple test document
+                test_content = """# Test Document
+                
+This is a test document for the RAG chatbot system.
+
+## Features
+- Document processing
+- Vector search
+- Question answering
+
+## How it works
+The system processes documents and creates embeddings for semantic search.
+                """
+                with open('test_document.txt', 'w', encoding='utf-8') as f:
+                    f.write(test_content)
+                test_files_created.append('test_document.txt')
+                print("DEBUG: Created test document")
+            except Exception as e:
+                print(f"DEBUG: Could not create test file: {e}")
+        
         # Scan current directory and subdirectories
+        all_found_files = []
         for root, dirs, files in os.walk('.'):
             # Skip hidden directories and common ignore directories
             dirs[:] = [d for d in dirs if not d.startswith('.') and d not in ['__pycache__', 'node_modules', 'vector_cache']]
             
             print(f"DEBUG: Checking directory: {root}")
-            print(f"DEBUG: Files in {root}: {files}")
+            print(f"DEBUG: Files in {root}: {[f for f in files if not f.startswith('.')]}")
             
             for file in files:
-                if file.lower().endswith(supported_extensions):
-                    filepath = os.path.join(root, file)
-                    print(f"DEBUG: Found supported file: {filepath}")
-                    if not should_ignore_file(filepath, ignore_patterns):
-                        local_files.append(filepath)
-                        print(f"DEBUG: Added file: {filepath}")
-                    else:
-                        print(f"DEBUG: Ignored file: {filepath}")
+                if not file.startswith('.'):  # Skip hidden files
+                    all_found_files.append(os.path.join(root, file))
+                    if file.lower().endswith(supported_extensions):
+                        filepath = os.path.join(root, file)
+                        print(f"DEBUG: Found supported file: {filepath}")
+                        if not should_ignore_file(filepath, ignore_patterns):
+                            local_files.append(filepath)
+                            print(f"DEBUG: Added file: {filepath}")
+                        else:
+                            print(f"DEBUG: Ignored file: {filepath}")
+        
+        print(f"DEBUG: All files found: {all_found_files[:20]}")  # Show first 20
+        print(f"DEBUG: Supported files: {local_files}")
         
         # Remove duplicates and sort
         local_files = sorted(list(set(local_files)))
         print(f"DEBUG: Final file list: {local_files}")
         
+        if test_files_created:
+            print(f"DEBUG: Test files created: {test_files_created}")
+        
     except Exception as e:
         print(f"DEBUG: Error scanning local files: {e}")
+        import traceback
+        print(f"DEBUG: Traceback: {traceback.format_exc()}")
     
     return local_files
 
@@ -672,58 +706,60 @@ def process_all_documents(local_files: List[str], uploaded_files: List, show_pro
 # Auto-load local files on startup with improved UX
 def auto_load_local_files():
     """Automatically load local files on startup with better UX"""
-    app_state = get_app_state()
+    print("DEBUG: === Starting auto_load_local_files ===")
     
-    # Check if this is a fresh app start (not just a user session)
-    if app_state.get("initialized", False) and (time.time() - app_state.get("last_load", 0)) < 300:  # 5 minutes
-        # App was recently initialized, skip auto-load messages
-        st.session_state.show_loading_messages = False
-    
+    # Don't skip if recently initialized - always try to load
     if st.session_state.auto_load_attempted:
+        print("DEBUG: Auto-load already attempted, skipping")
         return
     
     st.session_state.auto_load_attempted = True
     
     # Scan for local files
-    print("DEBUG: Starting auto_load_local_files")
+    print("DEBUG: Starting file scan")
     local_files = scan_local_files()
     st.session_state.local_files = local_files
-    print(f"DEBUG: Found {len(local_files)} files")
+    print(f"DEBUG: Found {len(local_files)} files: {local_files}")
     
     t = translations[st.session_state.language]
     
     if not local_files:
         print("DEBUG: No local files found")
-        st.info("📁 No local files found in repository. Upload documents using the sidebar.")
-        return  # Exit early if no files
+        st.warning("📁 No local files found in repository. Upload documents using the sidebar.")
+        return
     
-    # Show initial file discovery message only once per app session
-    if st.session_state.show_loading_messages:
-        st.info(t["found_local_files"](len(local_files)))
-        print(f"DEBUG: Showing message for {len(local_files)} files")
+    # Always show file discovery message
+    st.success(t["found_local_files"](len(local_files)))
     
-    # Auto-process if we have local files - no spinner to avoid hanging
+    # Auto-process files
     try:
         print("DEBUG: Starting document processing")
-        success = process_all_documents(local_files, [], show_progress=st.session_state.show_loading_messages)
+        
+        # Force show progress
+        success = process_all_documents(local_files, [], show_progress=True)
         print(f"DEBUG: Document processing result: {success}")
         
         if success:
-            # Update app state to indicate successful initialization
-            app_state["initialized"] = True
-            app_state["last_load"] = time.time()
+            print("DEBUG: Processing successful")
+            # Update app state
+            app_state = {"initialized": True, "last_load": time.time()}
             save_app_state(app_state)
             
-            # Disable loading messages for subsequent users
+            # Set completion flags
             st.session_state.show_loading_messages = False
             st.session_state.initialization_complete = True
-            print("DEBUG: Auto-load completed successfully")
+            
+            st.success(f"✅ Successfully processed {len(local_files)} files into {st.session_state.document_chunks} chunks!")
+            print(f"DEBUG: Auto-load completed - {st.session_state.document_chunks} chunks created")
         else:
-            print("DEBUG: Auto-load failed")
-            st.error("❌ Failed to process local files. Try reloading manually.")
+            print("DEBUG: Processing failed")
+            st.error("❌ Failed to process local files. Check file formats and try reloading.")
+            
     except Exception as e:
         print(f"DEBUG: Error during auto-load: {e}")
-        st.error(f"Error during auto-load: {e}")
+        import traceback
+        print(f"DEBUG: Traceback: {traceback.format_exc()}")
+        st.error(f"❌ Error during auto-load: {e}")
         st.session_state.show_loading_messages = False
 
 # Custom Mistral LangChain wrapper
@@ -1174,18 +1210,32 @@ def main():
 
             # Reload local files button
             if st.button(t["reload_local"], use_container_width=True):
-                print("DEBUG: Manual reload triggered")
-                # Clear cache first
+                print("DEBUG: === Manual reload triggered ===")
+                
+                # Clear all session state
                 st.session_state.local_files = []
                 st.session_state.auto_load_attempted = False
                 st.session_state.documents_processed = False
                 st.session_state.vectorstore = None
+                st.session_state.document_chunks = 0
                 st.session_state.show_loading_messages = True
                 st.session_state.initialization_complete = False
-                # Reset app state to allow messages to show again
+                st.session_state.messages = []  # Clear chat history
+                
+                # Reset app state
                 save_app_state({"initialized": False, "last_load": 0})
-                # Force a fresh scan
-                scan_local_files.clear()  # Clear cache
+                
+                # Clear any caches
+                try:
+                    # Clear streamlit cache
+                    st.cache_data.clear()
+                    st.cache_resource.clear()
+                    print("DEBUG: Caches cleared")
+                except Exception as e:
+                    print(f"DEBUG: Cache clear error: {e}")
+                
+                st.success("🔄 Reload triggered! Refreshing...")
+                time.sleep(1)
                 st.rerun()
 
             # File uploader
