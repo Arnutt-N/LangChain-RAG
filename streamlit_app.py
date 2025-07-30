@@ -83,7 +83,7 @@ try:
         MISTRAL_AVAILABLE = True
     except ImportError:
         MISTRAL_AVAILABLE = False
-        st.info("💡 Mistral AI not available. Install with: pip install mistralai")
+        # Don't show notification here - will show later in proper order
     
 except ImportError as e:
     st.error(f"Import error: {e}")
@@ -685,7 +685,7 @@ def auto_load_local_files():
         # Show initial file discovery message only once per app session
         if st.session_state.show_loading_messages:
             discovery_msg = st.empty()
-            discovery_msg.success(t["found_local_files"](len(local_files)))
+            discovery_msg.info(t["found_local_files"](len(local_files)))
             time.sleep(1)
         
         # Auto-process if we have local files
@@ -694,10 +694,7 @@ def auto_load_local_files():
             
             if success:
                 if st.session_state.show_loading_messages:
-                    completion_msg = st.empty()
-                    completion_msg.success(f"✅ {t['system_ready']}")
-                    time.sleep(1)
-                    completion_msg.empty()
+                    # Clear the discovery message before showing completion
                     discovery_msg.empty()
                 
                 # Update app state to indicate successful initialization
@@ -1066,9 +1063,6 @@ def main():
             st.session_state.app_initialized = True
             cleanup_cache()
 
-        # Auto-load local files on first run with improved UX
-        auto_load_local_files()
-
         # Model info with better styling
         st.markdown(f'<div class="model-info">{t["model_info"]}</div>', unsafe_allow_html=True)
 
@@ -1190,10 +1184,9 @@ def main():
 
         # Main content
         if st.session_state.documents_processed:
-            # Status indicator
+            # Status indicator - show only after everything is ready
             if st.session_state.initialization_complete:
-                st.markdown(f'<span class="status-badge status-ready">✅ {t["system_ready"]}</span>', unsafe_allow_html=True)
-                st.markdown("<br>", unsafe_allow_html=True)
+                st.success(f"✅ {t['system_ready']}")
 
             # Chat interface in container
             st.markdown('<div class="chat-container">', unsafe_allow_html=True)
