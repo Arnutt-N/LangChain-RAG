@@ -6,17 +6,20 @@ python-dotenv==1.0.1
 google-generativeai==0.7.2
 langchain-google-genai==1.0.8
 
-# LangChain core dependencies
+# LangChain core dependencies - Updated to latest stable
 langchain==0.2.11
 langchain-community==0.2.10
 langchain-core==0.2.35
 langchain-text-splitters==0.2.2
 
+# Updated HuggingFace embeddings to avoid deprecation
+langchain-huggingface==0.0.3
+
 # Embeddings and ML
 sentence-transformers==3.0.1
 transformers==4.44.2
 
-# Vector database - Using FAISS instead of ChromaDB
+# Vector database
 faiss-cpu==1.8.0
 
 # Document processing
