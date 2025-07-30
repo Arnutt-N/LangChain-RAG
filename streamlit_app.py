@@ -20,6 +20,44 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# Import dependencies with proper error handling
+@st.cache_data
+def check_dependencies():
+    """Check if all required packages are available with correct versions"""
+    missing_packages = []
+    try:
+        # Updated imports for latest versions
+        import google.generativeai as genai
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        from langchain_huggingface import HuggingFaceEmbeddings
+        from langchain_community.vectorstores import FAISS
+        from langchain_community.document_loaders import PyPDFLoader, CSVLoader, UnstructuredExcelLoader
+        from langchain_text_splitters import RecursiveCharacterTextSplitter
+        from langchain.memory import ConversationBufferMemory
+        from langchain.chains import ConversationalRetrievalChain
+        # Optional Mistral import
+        try:
+            from mistralai import Mistral
+        except ImportError:
+            pass  # Mistral is optional
+    except ImportError as e:
+        missing_package = str(e).split("'")[1] if "'" in str(e) else str(e)
+        missing_packages.append(missing_package)
+    
+    return missing_packages
+
+# Check dependencies early
+missing_deps = check_dependencies()
+if missing_deps:
+    st.error(f"Missing packages: {', '.join(missing_deps)}")
+    st.info("""
+    Please install with:
+    ```bash
+    pip install -r requirements.txt
+    ```
+    """)
+    st.stop()
+
 # Import all required packages
 try:
     import google.generativeai as genai
@@ -45,6 +83,7 @@ try:
         MISTRAL_AVAILABLE = True
     except ImportError:
         MISTRAL_AVAILABLE = False
+        # Don't show notification here - will show later in proper order
     
 except ImportError as e:
     st.error(f"Import error: {e}")
@@ -94,21 +133,111 @@ if MISTRAL_API_KEY and MISTRAL_AVAILABLE:
 CACHE_DIR = Path("./vector_cache")
 CACHE_DIR.mkdir(exist_ok=True)
 
+# Global app state file to track initialization across users
+APP_STATE_FILE = Path("./app_state.json")
+
+def get_app_state():
+    """Get global app state"""
+    try:
+        if APP_STATE_FILE.exists():
+            with open(APP_STATE_FILE, 'r') as f:
+                return json.load(f)
+    except:
+        pass
+    return {"initialized": False, "last_load": 0}
+
+def save_app_state(state):
+    """Save global app state"""
+    try:
+        with open(APP_STATE_FILE, 'w') as f:
+            json.dump(state, f)
+    except:
+        pass
+
+# Translations
+translations = {
+    "en": {
+        "title": "🤖 Advanced RAG Chatbot",
+        "upload_button": "Upload Additional Documents",
+        "ask_placeholder": "Ask a question in Thai or English...",
+        "processing": "Processing documents...",
+        "welcome": "Hello! I'm ready to chat about various topics based on the documents.",
+        "upload_success": lambda count: f"✅ {count} document(s) uploaded successfully!",
+        "thinking": "🧠 Generating response...",
+        "language": "Language / ภาษา",
+        "clear_chat": "🗑️ Clear Chat",
+        "clear_cache": "🗑️ Clear Cache",
+        "reload_local": "🔄 Reload Local Files",
+        "model_info": '<span class="emoji">🤖</span><span class="bold-text">Model:</span> Gemini Pro / Mistral Large | <span class="emoji">📊</span><span class="bold-text">Embedding:</span> MiniLM-L6-v2 | <span class="emoji">🗃️</span><span class="bold-text">Vector DB:</span> FAISS',
+        "no_documents": "📄 No documents found. Please check the repository or upload files.",
+        "error_processing": "❌ Error processing documents. Please try again.",
+        "error_response": "🚨 Sorry, I encountered an error while generating response.",
+        "checking_cache": "Checking cache...",
+        "found_cached": "Found cached vectors",
+        "saving_cache": "Saving to cache...",
+        "local_files": "📁 Local Repository Files",
+        "uploaded_files": "📤 Uploaded Files",
+        "stats": "Statistics",
+        "advanced_features": "Advanced Features",
+        "auto_loaded": "Auto-loaded from repository",
+        "processing_local": "Processing repository files...",
+        "found_local_files": lambda count: f"Found {count} local files in repository",
+        "system_ready": "System initialized and ready!",
+        "loading_complete": "Loading complete",
+    },
+    "th": {
+        "title": "🤖 แชทบอท RAG ขั้นสูง",
+        "upload_button": "อัปโหลดเอกสารเพิ่มเติม",
+        "ask_placeholder": "ถามคำถามเป็นภาษาไทยหรืออังกฤษ...",
+        "processing": "กำลังประมวลผลเอกสาร...",
+        "welcome": "สวัสดี! ฉันพร้อมพูดคุยเกี่ยวกับเอกสารต่างๆ",
+        "upload_success": lambda count: f"✅ อัปโหลดเอกสาร {count} ฉบับสำเร็จ!",
+        "thinking": "🧠 กำลังสร้างคำตอบ...",
+        "language": "ภาษา / Language",
+        "clear_chat": "🗑️ ล้างการแชท",
+        "clear_cache": "🗑️ ล้าง Cache",
+        "reload_local": "🔄 โหลดไฟล์ local ใหม่",
+        "model_info": '<span class="emoji">🤖</span><span class="bold-text">โมเดล:</span> Gemini Pro / Mistral Large | <span class="emoji">📊</span><span class="bold-text">Embedding:</span> MiniLM-L6-v2 | <span class="emoji">🗃️</span><span class="bold-text">Vector DB:</span> FAISS',
+        "no_documents": "📄 ไม่พบเอกสาร กรุณาตรวจสอบ repository หรืออัปโหลดไฟล์",
+        "error_processing": "❌ เกิดข้อผิดพลาดในการประมวลผลเอกสาร",
+        "error_response": "🚨 ขออภัย เกิดข้อผิดพลาดในการสร้างคำตอบ",
+        "checking_cache": "ตรวจสอบ cache...",
+        "found_cached": "พบ vectors ใน cache",
+        "saving_cache": "บันทึกลง cache...",
+        "local_files": "📁 ไฟล์ใน Repository",
+        "uploaded_files": "📤 ไฟล์ที่อัปโหลด",
+        "stats": "สถิติ",
+        "advanced_features": "ฟีเจอร์ขั้นสูง",
+        "auto_loaded": "โหลดอัตโนมัติจาก repository",
+        "processing_local": "กำลังประมวลผลไฟล์ใน repository...",
+        "found_local_files": lambda count: f"พบไฟล์ local {count} ไฟล์ใน repository",
+        "system_ready": "ระบบเริ่มต้นและพร้อมใช้งาน!",
+        "loading_complete": "โหลดเสร็จสิ้น",
+    }
+}
+
 # Initialize session state
 def init_session_state():
     defaults = {
         "messages": [],
         "vectorstore": None,
         "language": "en",
+        "uploaded_files": [],
         "local_files": [],
         "documents_processed": False,
         "document_chunks": 0,
         "debug_mode": False,
-        "selected_model": "gemini",
+        "last_request_time": 0,
+        "app_initialized": False,
+        "file_analysis": {},
+        "search_history": [],
         "similarity_threshold": 0.7,
         "max_tokens": 512,
         "temperature": 0.1,
-        "system_ready": False,
+        "auto_load_attempted": False,
+        "show_loading_messages": True,
+        "initialization_complete": False,
+        "selected_model": "gemini", # Default model
     }
     
     for key, value in defaults.items():
@@ -117,127 +246,468 @@ def init_session_state():
 
 init_session_state()
 
-# Simple file scanner
-def scan_for_documents():
-    """Simple document scanner"""
+# Function to scan for local files
+def load_gitignore_patterns():
+    """Load .gitignore patterns to exclude files"""
+    patterns = []
+    try:
+        if os.path.exists('.gitignore'):
+            with open('.gitignore', 'r', encoding='utf-8') as f:
+                patterns = [line.strip() for line in f.readlines() 
+                           if line.strip() and not line.startswith('#')]
+    except:
+        pass
+    
+    # Default patterns to ignore
+    default_patterns = [
+        '.git/*', '*.pyc', '__pycache__/*', '.env', '*.log',
+        'node_modules/*', '.vscode/*', '.idea/*', '*.tmp',
+        'vector_cache/*', '.streamlit/*'
+    ]
+    
+    return patterns + default_patterns
+
+def should_ignore_file(filepath, patterns):
+    """Check if file should be ignored based on patterns"""
+    filename = os.path.basename(filepath)
+    
+    # Always ignore these
+    if filename.startswith('.') or filename == 'requirements.txt':
+        return True
+    
+    for pattern in patterns:
+        if fnmatch.fnmatch(filepath, pattern) or fnmatch.fnmatch(filename, pattern):
+            return True
+    
+    return False
+
+def scan_local_files():
+    """Scan repository for document files"""
     supported_extensions = ('.pdf', '.txt', '.csv', '.xlsx', '.xls', '.docx')
-    found_files = []
+    local_files = []
+    ignore_patterns = load_gitignore_patterns()
     
     try:
-        # Check current directory only
-        for file in os.listdir('.'):
-            if file.lower().endswith(supported_extensions) and not file.startswith('.'):
-                found_files.append(file)
+        # Debug: Show current directory
+        current_dir = os.getcwd()
         
-        # If no files found, create a test file
-        if not found_files:
-            test_content = """# Welcome to RAG Chatbot
-
-This is a test document created automatically.
-
-## Features
-- Document processing and analysis
-- Question answering with context
-- Vector-based semantic search
-
-## How to use
-1. Upload your documents or place them in the repository
-2. Ask questions about the content
-3. Get accurate answers with source citations
-
-## Supported formats
-- PDF files
-- Text files (.txt)
-- CSV files
-- Excel files (.xlsx, .xls)
-- Word documents (.docx)
-
-You can replace this file with your own documents!
-"""
-            try:
-                with open('README_RAG.txt', 'w', encoding='utf-8') as f:
-                    f.write(test_content)
-                found_files.append('README_RAG.txt')
-                st.info("📄 Created demo document: README_RAG.txt")
-            except Exception as e:
-                st.warning(f"Could not create demo file: {e}")
+        # Scan current directory and subdirectories
+        for root, dirs, files in os.walk('.'):
+            # Skip hidden directories and common ignore directories
+            dirs[:] = [d for d in dirs if not d.startswith('.') and d not in ['__pycache__', 'node_modules', 'vector_cache']]
+            
+            for file in files:
+                if file.lower().endswith(supported_extensions):
+                    filepath = os.path.join(root, file)
+                    if not should_ignore_file(filepath, ignore_patterns):
+                        local_files.append(filepath)
+        
+        # Remove duplicates and sort
+        local_files = sorted(list(set(local_files)))
         
     except Exception as e:
-        st.error(f"Error scanning files: {e}")
+        pass
     
-    return found_files
+    return local_files
 
-# Simple document loader
-@st.cache_data
-def load_documents(file_list):
-    """Load and process documents"""
-    all_docs = []
-    
-    for filename in file_list:
-        try:
-            file_path = Path(filename)
-            if not file_path.exists():
-                continue
-                
-            # Determine loader based on extension
-            if filename.endswith('.pdf'):
-                loader = PyPDFLoader(str(file_path))
-            elif filename.endswith('.csv'):
-                loader = CSVLoader(str(file_path))
-            elif filename.endswith('.txt'):
-                loader = TextLoader(str(file_path), encoding='utf-8')
-            elif filename.endswith(('.xlsx', '.xls')):
-                loader = UnstructuredExcelLoader(str(file_path))
-            else:
-                continue
-            
-            docs = loader.load()
-            for doc in docs:
-                doc.metadata['source_file'] = filename
-                doc.metadata['file_type'] = 'local'
-            all_docs.extend(docs)
-            
-        except Exception as e:
-            st.warning(f"Could not load {filename}: {e}")
-    
-    return all_docs
-
-# Create vector store
+# Optimized embeddings with latest HuggingFace integration
 @st.cache_resource
-def create_vector_store(documents):
-    """Create vector store from documents"""
-    if not documents:
-        return None, 0
-    
+def get_embeddings():
+    """Initialize embeddings with latest langchain-huggingface"""
     try:
-        # Split documents
-        text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=500,
-            chunk_overlap=50,
-            separators=["\n\n", "\n", ". ", " ", ""]
-        )
-        chunks = text_splitter.split_documents(documents)
-        
-        if not chunks:
-            return None, 0
-        
-        # Create embeddings
         embeddings = HuggingFaceEmbeddings(
             model_name="sentence-transformers/all-MiniLM-L6-v2",
             model_kwargs={'device': 'cpu'},
             encode_kwargs={'normalize_embeddings': True}
         )
         
-        # Create vector store
-        vectorstore = FAISS.from_documents(chunks, embeddings)
+        # Test embeddings
+        test_embedding = embeddings.embed_query("test")
+        if len(test_embedding) > 0:
+            return embeddings
+        else:
+            return None
+            
+    except Exception as e:
+        return None
+
+# Enhanced caching system
+def get_file_hash(filepath_or_content) -> str:
+    """Generate hash from file path or content"""
+    if isinstance(filepath_or_content, (str, Path)) and os.path.exists(filepath_or_content):
+        # File path - read and hash
+        with open(filepath_or_content, 'rb') as f:
+            content = f.read()
+    else:
+        # Direct content
+        content = filepath_or_content
+        if isinstance(content, str):
+            content = content.encode('utf-8')
+    
+    return hashlib.md5(content).hexdigest()
+
+def get_cache_key(local_files: List[str], uploaded_files: List) -> str:
+    """Generate cache key from all files"""
+    file_hashes = {}
+    
+    # Hash local files
+    for filepath in local_files:
+        try:
+            file_hashes[f"local_{filepath}"] = get_file_hash(filepath)
+        except:
+            continue
+    
+    # Hash uploaded files
+    for uploaded_file in uploaded_files:
+        try:
+            file_hashes[f"upload_{uploaded_file.name}"] = get_file_hash(uploaded_file.getvalue())
+        except:
+            continue
+    
+    cache_string = json.dumps(sorted(file_hashes.items()), sort_keys=True)
+    return hashlib.md5(cache_string.encode()).hexdigest()[:16]
+
+def save_vectors_to_cache(vectorstore: FAISS, cache_key: str, file_info: Dict):
+    """Save vectorstore to cache"""
+    try:
+        cache_path = CACHE_DIR / f"vectors_{cache_key}"
+        cache_path.mkdir(exist_ok=True)
         
-        return vectorstore, len(chunks)
+        # Save FAISS index
+        vectorstore.save_local(str(cache_path))
+        
+        # Save metadata
+        metadata = {
+            "file_info": file_info,
+            "timestamp": time.time(),
+            "cache_key": cache_key,
+            "chunks": st.session_state.document_chunks
+        }
+        
+        with open(cache_path / "metadata.json", "w", encoding='utf-8') as f:
+            json.dump(metadata, f, ensure_ascii=False, indent=2)
+        
+        return True
+    except Exception as e:
+        return False
+
+def load_vectors_from_cache(cache_key: str):
+    """Load vectorstore from cache"""
+    try:
+        cache_path = CACHE_DIR / f"vectors_{cache_key}"
+        metadata_path = cache_path / "metadata.json"
+        
+        if not cache_path.exists() or not metadata_path.exists():
+            return None, None
+        
+        # Load metadata
+        with open(metadata_path, "r", encoding='utf-8') as f:
+            metadata = json.load(f)
+        
+        # Check if cache is not too old (24 hours)
+        if time.time() - metadata["timestamp"] > 86400:
+            return None, None
+        
+        # Load embeddings
+        embeddings = get_embeddings()
+        if not embeddings:
+            return None, None
+        
+        # Load FAISS vectorstore
+        vectorstore = FAISS.load_local(
+            str(cache_path), 
+            embeddings, 
+            allow_dangerous_deserialization=True
+        )
+        
+        return vectorstore, metadata
         
     except Exception as e:
-        st.error(f"Error creating vector store: {e}")
-        return None, 0
+        return None, None
 
-# Custom Mistral wrapper
+# Enhanced document processing
+def load_single_local_file(filepath: str) -> List[Document]:
+    """Load a single local file"""
+    try:
+        file_extension = Path(filepath).suffix.lower()
+        
+        # Use appropriate loader based on file type
+        if file_extension == '.pdf':
+            loader = PyPDFLoader(filepath)
+        elif file_extension == '.csv':
+            loader = CSVLoader(filepath)
+        elif file_extension == '.txt':
+            loader = TextLoader(filepath, encoding='utf-8')
+        elif file_extension in ['.xlsx', '.xls']:
+            loader = UnstructuredExcelLoader(filepath)
+        elif file_extension == '.docx':
+            # Try to load docx if available
+            try:
+                from langchain_community.document_loaders import UnstructuredWordDocumentLoader
+                loader = UnstructuredWordDocumentLoader(filepath)
+            except:
+                return []
+        else:
+            return []
+        
+        docs = loader.load()
+        cleaned_docs = []
+        
+        for i, doc in enumerate(docs):
+            if hasattr(doc, 'page_content') and doc.page_content.strip():
+                content = doc.page_content.replace('\n\n', '\n').strip()
+                if len(content) > 50:  # Only include meaningful content
+                    doc.page_content = content
+                    # Enhanced metadata
+                    doc.metadata.update({
+                        'source_file': os.path.basename(filepath),
+                        'file_path': filepath,
+                        'file_hash': get_file_hash(filepath),
+                        'file_type': 'local',
+                        'chunk_id': i,
+                        'content_length': len(content)
+                    })
+                    cleaned_docs.append(doc)
+        
+        return cleaned_docs
+        
+    except Exception as e:
+        return []
+
+def load_single_uploaded_file(uploaded_file) -> List[Document]:
+    """Load a single uploaded file"""
+    try:
+        file_extension = uploaded_file.name.split('.')[-1].lower()
+        
+        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{file_extension}") as temp_file:
+            temp_file.write(uploaded_file.getvalue())
+            temp_file_path = temp_file.name
+        
+        try:
+            # Updated document loaders
+            if file_extension == 'pdf':
+                loader = PyPDFLoader(temp_file_path)
+            elif file_extension == 'csv':
+                loader = CSVLoader(temp_file_path)
+            elif file_extension == 'txt':
+                loader = TextLoader(temp_file_path, encoding='utf-8')
+            elif file_extension in ['xlsx', 'xls']:
+                loader = UnstructuredExcelLoader(temp_file_path)
+            else:
+                return []
+            
+            docs = loader.load()
+            cleaned_docs = []
+            
+            for i, doc in enumerate(docs):
+                if hasattr(doc, 'page_content') and doc.page_content.strip():
+                    content = doc.page_content.replace('\n\n', '\n').strip()
+                    if len(content) > 50:  # Only include meaningful content
+                        doc.page_content = content
+                        # Enhanced metadata
+                        doc.metadata.update({
+                            'source_file': uploaded_file.name,
+                            'file_hash': get_file_hash(uploaded_file.getvalue()),
+                            'file_type': 'uploaded',
+                            'upload_time': time.time(),
+                            'file_size': len(uploaded_file.getvalue()),
+                            'chunk_id': i,
+                            'content_length': len(content)
+                        })
+                        cleaned_docs.append(doc)
+            
+            return cleaned_docs
+            
+        finally:
+            try:
+                os.unlink(temp_file_path)
+            except:
+                pass
+        
+    except Exception as e:
+        return []
+
+def process_all_documents(local_files: List[str], uploaded_files: List, show_progress: bool = True) -> bool:
+    """Process all documents with intelligent caching"""
+    t = translations[st.session_state.language]
+    
+    total_files = len(local_files) + len(uploaded_files)
+    if total_files == 0:
+        return False
+    
+    # Generate cache key
+    cache_key = get_cache_key(local_files, uploaded_files)
+    
+    # Try to load from cache
+    if show_progress and st.session_state.show_loading_messages:
+        cache_placeholder = st.empty()
+        cache_placeholder.info(f"🔍 {t['checking_cache']}")
+    
+    cached_vectorstore, cached_metadata = load_vectors_from_cache(cache_key)
+    
+    if cached_vectorstore and cached_metadata:
+        if show_progress and st.session_state.show_loading_messages:
+            cache_placeholder.success(f"✅ {t['found_cached']}")
+            # Small delay to show the message, then clear
+            time.sleep(0.3)
+            cache_placeholder.empty()
+        
+        st.session_state.vectorstore = cached_vectorstore
+        st.session_state.document_chunks = cached_metadata.get("chunks", 0)
+        st.session_state.documents_processed = True
+        return True
+    
+    if show_progress and st.session_state.show_loading_messages:
+        cache_placeholder.empty()
+    
+    # Process documents if not in cache
+    if show_progress and st.session_state.show_loading_messages:
+        st.info(f"📝 {t['processing']}")
+    
+    all_documents = []
+    progress_bar = st.progress(0) if show_progress and st.session_state.show_loading_messages else None
+    status_text = st.empty() if show_progress and st.session_state.show_loading_messages else None
+    
+    try:
+        total_files_to_process = len(local_files) + len(uploaded_files)
+        processed = 0
+        
+        # Process local files
+        for filepath in local_files:
+            if show_progress and status_text:
+                status_text.text(f"Loading local: {os.path.basename(filepath)}...")
+            if progress_bar:
+                progress_bar.progress(processed / total_files_to_process * 0.5)
+            
+            docs = load_single_local_file(filepath)
+            all_documents.extend(docs)
+            processed += 1
+        
+        # Process uploaded files
+        for uploaded_file in uploaded_files:
+            if show_progress and status_text:
+                status_text.text(f"Loading uploaded: {uploaded_file.name}...")
+            if progress_bar:
+                progress_bar.progress(processed / total_files_to_process * 0.5)
+            
+            docs = load_single_uploaded_file(uploaded_file)
+            all_documents.extend(docs)
+            processed += 1
+        
+        if not all_documents:
+            return False
+        
+        # Split documents with updated text splitter
+        if show_progress and status_text:
+            status_text.text("🔄 Splitting documents...")
+        if progress_bar:
+            progress_bar.progress(0.7)
+        
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=600,
+            chunk_overlap=50,
+            separators=["\n\n", "\n", ". ", " ", ""],
+            length_function=len,
+        )
+        texts = text_splitter.split_documents(all_documents)
+        
+        if not texts:
+            return False
+        
+        # Create embeddings and vectorstore
+        if show_progress and status_text:
+            status_text.text("📊 Creating embeddings...")
+        if progress_bar:
+            progress_bar.progress(0.9)
+        
+        embeddings = get_embeddings()
+        if not embeddings:
+            return False
+        
+        vectorstore = FAISS.from_documents(texts, embeddings)
+        
+        # Save to cache
+        if show_progress and status_text:
+            status_text.text(f"💾 {t['saving_cache']}")
+        file_info = {
+            "local_files": local_files,
+            "uploaded_files": [f.name for f in uploaded_files],
+            "total_documents": len(all_documents),
+            "total_chunks": len(texts)
+        }
+        save_vectors_to_cache(vectorstore, cache_key, file_info)
+        
+        # Update session state
+        st.session_state.vectorstore = vectorstore
+        st.session_state.document_chunks = len(texts)
+        st.session_state.documents_processed = True
+        
+        if progress_bar:
+            progress_bar.progress(1.0)
+            # Small delay then clean up
+            time.sleep(0.2)
+            progress_bar.empty()
+        if status_text:
+            status_text.empty()
+        
+        return True
+        
+    except Exception as e:
+        if progress_bar:
+            progress_bar.empty()
+        if status_text:
+            status_text.empty()
+        return False
+
+# Auto-load local files on startup with improved UX
+def auto_load_local_files():
+    """Automatically load local files on startup with better UX"""
+    app_state = get_app_state()
+    
+    # Check if this is a fresh app start (not just a user session)
+    if app_state.get("initialized", False) and (time.time() - app_state.get("last_load", 0)) < 300:  # 5 minutes
+        # App was recently initialized, skip auto-load messages
+        st.session_state.show_loading_messages = False
+    
+    if st.session_state.auto_load_attempted:
+        return
+    
+    st.session_state.auto_load_attempted = True
+    
+    # Scan for local files
+    local_files = scan_local_files()
+    st.session_state.local_files = local_files
+    
+    t = translations[st.session_state.language]
+    
+    if not local_files:
+        st.info("📁 No local files found in repository. Upload documents using the sidebar.")
+        return  # Exit early if no files
+    
+    # Show initial file discovery message only once per app session
+    if st.session_state.show_loading_messages:
+        st.info(t["found_local_files"](len(local_files)))
+    
+    # Auto-process if we have local files - no spinner to avoid hanging
+    try:
+        success = process_all_documents(local_files, [], show_progress=st.session_state.show_loading_messages)
+        
+        if success:
+            # Update app state to indicate successful initialization
+            app_state["initialized"] = True
+            app_state["last_load"] = time.time()
+            save_app_state(app_state)
+            
+            # Disable loading messages for subsequent users
+            st.session_state.show_loading_messages = False
+            st.session_state.initialization_complete = True
+        else:
+            st.error("❌ Failed to process local files. Try reloading manually.")
+    except Exception as e:
+        st.error(f"Error during auto-load: {e}")
+        st.session_state.show_loading_messages = False
+
+# Custom Mistral LangChain wrapper
 class MistralLLM:
     def __init__(self, api_key: str, model: str = "mistral-large-latest", temperature: float = 0.1, max_tokens: int = 512):
         self.client = Mistral(api_key=api_key)
@@ -246,12 +716,26 @@ class MistralLLM:
         self.max_tokens = max_tokens
     
     def invoke(self, messages):
+        """Invoke method to match LangChain interface"""
         try:
+            # Convert LangChain format to Mistral format
             if hasattr(messages, 'content'):
+                # Single message object
                 mistral_messages = [{"role": "user", "content": messages.content}]
             elif isinstance(messages, str):
+                # String message
                 mistral_messages = [{"role": "user", "content": messages}]
+            elif isinstance(messages, list):
+                # List of messages
+                mistral_messages = []
+                for msg in messages:
+                    if hasattr(msg, 'content') and hasattr(msg, 'type'):
+                        role = "user" if msg.type == "human" else "assistant"
+                        mistral_messages.append({"role": role, "content": msg.content})
+                    elif isinstance(msg, dict):
+                        mistral_messages.append(msg)
             else:
+                # Fallback
                 mistral_messages = [{"role": "user", "content": str(messages)}]
             
             response = self.client.chat.complete(
@@ -261,6 +745,7 @@ class MistralLLM:
                 max_tokens=self.max_tokens
             )
             
+            # Create response object that matches LangChain format
             class Response:
                 def __init__(self, content):
                     self.content = content
@@ -268,42 +753,40 @@ class MistralLLM:
             return Response(response.choices[0].message.content)
             
         except Exception as e:
-            return Response(f"Error: {e}")
+            st.error(f"Mistral API Error: {e}")
+            return Response("Sorry, I encountered an error while generating response.")
 
-# Setup QA chain
-def setup_qa_chain():
-    """Setup QA chain"""
-    if not st.session_state.vectorstore:
-        return None
-    
+# Enhanced query processing
+def setup_advanced_retrieval_chain():
+    """Setup retrieval chain with advanced features"""
     try:
-        # Create retriever
+        if not st.session_state.vectorstore:
+            return None
+        
+        # Create retriever with similarity threshold
         retriever = st.session_state.vectorstore.as_retriever(
-            search_type="similarity",
-            search_kwargs={"k": 3}
+            search_type="similarity_score_threshold",
+            search_kwargs={
+                "k": 5,
+                "score_threshold": st.session_state.similarity_threshold
+            }
         )
         
-        # Create memory
+        # Enhanced memory
         memory = ConversationBufferMemory(
             memory_key="chat_history",
             return_messages=True,
             output_key="answer"
         )
         
-        # Select model
-        if st.session_state.selected_model == "mistral" and MISTRAL_API_KEY and MISTRAL_AVAILABLE:
-            llm = MistralLLM(api_key=MISTRAL_API_KEY)
-        elif GOOGLE_API_KEY:
-            llm = ChatGoogleGenerativeAI(
-                model="gemini-pro",
-                temperature=st.session_state.temperature,
-                max_tokens=st.session_state.max_tokens,
-                google_api_key=GOOGLE_API_KEY,
-            )
-        else:
-            return None
+        # Updated Gemini model with latest API
+        llm = ChatGoogleGenerativeAI(
+            model="gemini-pro",
+            temperature=st.session_state.temperature,
+            max_tokens=st.session_state.max_tokens,
+            google_api_key=GOOGLE_API_KEY,
+        )
         
-        # Create chain
         qa_chain = ConversationalRetrievalChain.from_llm(
             llm=llm,
             retriever=retriever,
@@ -315,221 +798,704 @@ def setup_qa_chain():
         return qa_chain
         
     except Exception as e:
-        st.error(f"Error setting up QA chain: {e}")
         return None
 
-def initialize_system():
-    """Initialize the RAG system"""
-    if st.session_state.system_ready:
-        return
-    
-    with st.spinner("🚀 Initializing RAG system..."):
-        # Scan for documents
-        found_files = scan_for_documents()
-        st.session_state.local_files = found_files
+def query_with_analytics(chain, question: str) -> Dict[str, Any]:
+    """Query with analytics and error handling"""
+    try:
+        start_time = time.time()
         
-        if found_files:
-            st.success(f"📁 Found {len(found_files)} files: {', '.join(found_files)}")
-            
-            # Load documents
-            documents = load_documents(found_files)
-            
-            if documents:
-                st.success(f"📄 Loaded {len(documents)} documents")
-                
-                # Create vector store
-                vectorstore, chunks = create_vector_store(documents)
-                
-                if vectorstore:
-                    st.session_state.vectorstore = vectorstore
-                    st.session_state.document_chunks = chunks
-                    st.session_state.documents_processed = True
-                    st.session_state.system_ready = True
-                    
-                    st.success(f"✅ System ready! Created {chunks} chunks for search.")
-                else:
-                    st.error("❌ Failed to create vector store")
-            else:
-                st.error("❌ No documents could be loaded")
+        # Store search history
+        st.session_state.search_history.append({
+            "question": question,
+            "timestamp": time.time()
+        })
+        
+        # Keep only last 10 searches
+        if len(st.session_state.search_history) > 10:
+            st.session_state.search_history = st.session_state.search_history[-10:]
+        
+        response = chain.invoke({"question": question})
+        
+        # Add analytics
+        response["query_time"] = time.time() - start_time
+        response["question"] = question
+        
+        return response
+        
+    except Exception as e:
+        error_msg = str(e).lower()
+        if "quota" in error_msg or "rate" in error_msg or "429" in error_msg:
+            raise Exception("RATE_LIMIT")
+        elif "timeout" in error_msg:
+            raise TimeoutError("Request timed out")
         else:
-            st.warning("📁 No documents found")
+            raise e
 
-# Main app
-def main():
-    # CSS
-    st.markdown("""
-        <style>
-        .main .block-container {
-            max-width: 1200px;
-            padding-top: 2rem;
-            padding-bottom: 3rem;
-        }
-        .status-container {
-            background: #f0f2f6;
-            padding: 1rem;
-            border-radius: 0.5rem;
-            margin: 1rem 0;
-        }
-        .chat-container {
-            background: #fafafa;
-            border-radius: 0.5rem;
-            padding: 1rem;
-            margin: 1rem 0;
-            min-height: 400px;
-        }
-        </style>
-    """, unsafe_allow_html=True)
+# UI Helper functions
+def display_file_lists():
+    """Display local and uploaded file lists"""
+    t = translations[st.session_state.language]
     
-    # Title
-    st.title("🤖 Advanced RAG Chatbot")
-    
-    # Show Mistral availability
-    if not MISTRAL_AVAILABLE:
-        st.info("💡 Mistral AI not available. Install with: `pip install mistralai`")
-    
-    # Model info
-    model_text = "Gemini Pro"
-    if MISTRAL_API_KEY and MISTRAL_AVAILABLE:
-        model_text += " / Mistral Large"
-    
-    st.info(f"🤖 **Model:** {model_text} | 📊 **Embedding:** MiniLM-L6-v2 | 🗃️ **Vector DB:** FAISS")
-    
-    # Initialize system on first run
-    if not st.session_state.system_ready:
-        initialize_system()
-    
-    # Status display
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        if st.session_state.local_files:
-            st.success(f"📁 {len(st.session_state.local_files)} files found")
-        else:
-            st.info("📁 No files")
-    
-    with col2:
-        if st.session_state.documents_processed and st.session_state.vectorstore:
-            st.success(f"🗃️ Vector DB ready ({st.session_state.document_chunks} chunks)")
-        else:
-            st.warning("🗃️ Vector DB not ready")
-    
-    with col3:
-        if st.session_state.system_ready:
-            st.success("✅ System ready")
-        else:
-            st.info("⏳ Loading...")
-    
-    # Sidebar
-    with st.sidebar:
-        st.markdown("### 🌐 Language")
-        language = st.selectbox("Select", ["English", "ไทย"], label_visibility="collapsed")
-        
-        st.markdown("---")
-        
-        # Model selection
-        if GOOGLE_API_KEY and MISTRAL_API_KEY and MISTRAL_AVAILABLE:
-            st.markdown("### 🤖 AI Model")
-            model_choice = st.selectbox("Choose Model", ["Gemini Pro", "Mistral Large"], label_visibility="collapsed")
-            st.session_state.selected_model = "mistral" if model_choice == "Mistral Large" else "gemini"
-        
-        st.markdown("---")
-        
-        # Debug mode
-        st.session_state.debug_mode = st.checkbox("🔍 Debug Mode")
-        
-        # Reload button
-        if st.button("🔄 Reload System", use_container_width=True):
-            # Clear everything
-            for key in ["system_ready", "documents_processed", "vectorstore", "local_files", "document_chunks", "messages"]:
-                if key in st.session_state:
-                    del st.session_state[key]
-            
-            # Clear caches
-            st.cache_data.clear()
-            st.cache_resource.clear()
-            
-            st.success("🔄 System cleared! Reloading...")
-            time.sleep(1)
-            st.rerun()
-        
-        # Clear chat
-        if st.button("🗑️ Clear Chat", use_container_width=True):
-            st.session_state.messages = []
-            st.success("✅ Chat cleared!")
-        
-        # File list
-        if st.session_state.local_files:
-            st.markdown("### 📁 Files")
-            for file in st.session_state.local_files:
-                st.text(f"📄 {file}")
-        
-        # Debug info
-        if st.session_state.debug_mode:
-            st.markdown("### 🔍 Debug")
-            st.json({
-                "files_found": len(st.session_state.local_files),
-                "documents_processed": st.session_state.documents_processed,
-                "chunks": st.session_state.document_chunks,
-                "system_ready": st.session_state.system_ready,
-                "messages": len(st.session_state.messages)
-            })
-    
-    # Main content
-    if st.session_state.system_ready:
-        # Chat interface
-        st.markdown('<div class="chat-container">', unsafe_allow_html=True)
-        
-        # Display messages
-        for message in st.session_state.messages:
-            with st.chat_message(message["role"]):
-                st.markdown(message["content"])
-        
-        st.markdown('</div>', unsafe_allow_html=True)
-    else:
-        st.info("⏳ System is initializing. Please wait...")
-    
-    # Single chat input at the bottom
-    if st.session_state.system_ready:
-        placeholder = "Ask a question about your documents..."
-    else:
-        placeholder = "System is loading, please wait..."
-    
-    # SINGLE CHAT INPUT
-    if prompt := st.chat_input(placeholder):
-        if not st.session_state.system_ready:
-            st.error("❌ System not ready yet. Please wait for initialization to complete.")
-            st.rerun()
-        
-        # Add user message
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        
-        # Get QA chain
-        qa_chain = setup_qa_chain()
-        
-        if qa_chain:
+    # Local files
+    if st.session_state.local_files:
+        st.markdown(f"**📁 {t['local_files']} ({len(st.session_state.local_files)})**")
+        for filepath in st.session_state.local_files[:5]:  # Show first 5
+            filename = os.path.basename(filepath)
+            file_size = ""
             try:
-                # Get response
-                with st.spinner("🤔 Thinking..."):
-                    response = qa_chain.invoke({"question": prompt})
-                    answer = response.get('answer', 'No response generated')
-                
-                # Add assistant message
-                st.session_state.messages.append({"role": "assistant", "content": answer})
-                
-                # Show sources
-                if 'source_documents' in response and response['source_documents']:
-                    sources_text = f"\n\n**Sources:**\n"
-                    for i, doc in enumerate(response['source_documents']):
-                        sources_text += f"{i+1}. {doc.metadata.get('source_file', 'Unknown')}\n"
-                    st.session_state.messages[-1]["content"] += sources_text
-                
-            except Exception as e:
-                error_msg = f"Sorry, I encountered an error: {str(e)}"
-                st.session_state.messages.append({"role": "assistant", "content": error_msg})
-        else:
-            st.session_state.messages.append({"role": "assistant", "content": "Sorry, the system is not available."})
+                size_kb = os.path.getsize(filepath) / 1024
+                file_size = f" ({size_kb:.1f}KB)"
+            except:
+                pass
+            st.text(f"📄 {filename}{file_size}")
         
-        # Rerun to show new messages
-        st.rerun()
+        if len(st.session_state.local_files) > 5:
+            st.text(f"... and {len(st.session_state.local_files) - 5} more files")
+    
+    # Uploaded files
+    if st.session_state.uploaded_files:
+        st.markdown(f"**📤 {t['uploaded_files']} ({len(st.session_state.uploaded_files)})**")
+        for uploaded_file in st.session_state.uploaded_files:
+            file_size = len(uploaded_file.getvalue()) / 1024
+            st.text(f"📄 {uploaded_file.name} ({file_size:.1f}KB)")
+
+def display_advanced_settings():
+    """Display advanced settings"""
+    with st.expander("⚙️ Advanced Settings"):
+        st.session_state.similarity_threshold = st.slider(
+            "Similarity Threshold",
+            min_value=0.0,
+            max_value=1.0,
+            value=st.session_state.similarity_threshold,
+            step=0.1,
+            help="Higher values = more strict matching"
+        )
+        
+        st.session_state.max_tokens = st.slider(
+            "Max Response Tokens",
+            min_value=128,
+            max_value=2048,
+            value=st.session_state.max_tokens,
+            step=128
+        )
+        
+        st.session_state.temperature = st.slider(
+            "Temperature",
+            min_value=0.0,
+            max_value=1.0,
+            value=st.session_state.temperature,
+            step=0.1,
+            help="Higher values = more creative responses"
+        )
+
+def cleanup_cache():
+    """Clean up old cache files"""
+    try:
+        current_time = time.time()
+        for cache_dir in CACHE_DIR.glob("vectors_*"):
+            metadata_path = cache_dir / "metadata.json"
+            if metadata_path.exists():
+                try:
+                    with open(metadata_path, "r") as f:
+                        metadata = json.load(f)
+                    
+                    # Delete if older than 7 days
+                    if current_time - metadata["timestamp"] > 604800:
+                        import shutil
+                        shutil.rmtree(cache_dir)
+                except:
+                    continue
+    except Exception as e:
+        pass
+
+# Main application
+def main():
+    try:
+        # Handle language
+        if "language" in st.query_params:
+            st.session_state.language = st.query_params["language"]
+
+        t = translations[st.session_state.language]
+
+        # Enhanced CSS with better styling
+        st.markdown("""
+            <style>
+            .main .block-container {
+                max-width: 1200px;
+                padding-top: 4rem; /* เพิ่มพื้นที่ด้านบนให้หลบ navbar */
+                padding-bottom: 2rem; /* ลดพื้นที่ด้านล่าง เนื่องจากไม่มีฟุตเตอร์ */
+            }
+            @media (max-width: 768px) {
+                .main .block-container {
+                    padding-top: 3.5rem; /* ลดลงเล็กน้อยในมือถือ */
+                    padding-bottom: 2rem; /* ลดพื้นที่ในมือถือ */
+                    padding-left: 1rem;
+                    padding-right: 1rem;
+                }
+            }
+            .stTitle {
+                text-align: center;
+                color: #1f77b4;
+                margin-top: 1.5rem; /* เพิ่ม margin-top ให้หลบ navbar */
+                margin-bottom: 2rem;
+                font-size: 2.5rem !important;
+                font-weight: 700;
+                line-height: 1.4 !important;
+                padding: 1rem 0; /* เพิ่ม padding ด้านบนและล่าง */
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                min-height: 5rem; /* เพิ่มความสูงขั้นต่ำ */
+                position: relative;
+                z-index: 10; /* ให้อยู่เหนือ element อื่น */
+            }
+            .title-emoji {
+                font-size: 3.2rem; /* เพิ่มขนาดเล็กน้อย */
+                margin-right: 0.6rem;
+                filter: none;
+                background: none;
+                line-height: 1;
+                display: inline-block;
+                vertical-align: middle;
+                padding: 0.3rem; /* เพิ่ม padding */
+                margin-top: -0.2rem; /* ปรับตำแหน่งให้ตรงกลาง */
+            }
+            .title-text {
+                background: linear-gradient(90deg, #1f77b4, #2ca02c);
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+                background-clip: text;
+                font-weight: 700;
+                line-height: 1.3; /* ปรับ line-height */
+                display: inline-block;
+                vertical-align: middle;
+                padding: 0.2rem 0; /* เพิ่ม padding */
+            }
+            .metric-card {
+                background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+                border: 1px solid #dee2e6;
+                border-radius: 12px;
+                padding: 1.2rem;
+                margin: 0.5rem 0;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }
+            .model-info {
+                background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+                border-left: 4px solid #2196f3;
+                padding: 1rem;
+                border-radius: 8px;
+                margin: 1rem 0;
+                font-size: 0.95rem;
+                line-height: 1.6;
+            }
+            .model-info .emoji {
+                font-size: 1.2rem;
+                margin-right: 0.3rem;
+                filter: none;
+                background: none;
+                line-height: 1;
+                display: inline-block;
+                vertical-align: middle;
+                padding: 0.1rem;
+            }
+            .model-info .bold-text {
+                font-weight: 700;
+                color: #1976d2;
+                vertical-align: middle;
+            }
+            .chat-container {
+                background: #fafafa;
+                border-radius: 12px;
+                padding: 1rem;
+                margin-top: 1rem;
+                margin-bottom: 1rem; /* ลดระยะห่างด้านล่าง */
+                min-height: 50vh;
+            }
+            @media (max-width: 768px) {
+                .chat-container {
+                    margin-bottom: 1rem; /* ลดระยะห่างในมือถือ */
+                    padding: 0.8rem;
+                }
+            }
+            .welcome-card {
+                background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%);
+                border: 2px solid #ff9800;
+                border-radius: 16px;
+                padding: 1.5rem;
+                margin: 1.5rem 0 2rem 0;
+                text-align: center;
+                box-shadow: 0 4px 12px rgba(255, 152, 0, 0.2);
+            }
+            .welcome-card h3 {
+                font-size: 1.2rem;
+                margin-bottom: 0.5rem;
+                color: #f57c00;
+            }
+            .welcome-card p {
+                font-size: 1rem;
+                margin: 0;
+                color: #ef6c00;
+            }
+            @media (max-width: 768px) {
+                .welcome-card {
+                    padding: 1rem;
+                    margin: 1rem 0 1.5rem 0;
+                }
+                .welcome-card h3 {
+                    font-size: 1.1rem;
+                }
+                .welcome-card p {
+                    font-size: 0.9rem;
+                }
+            }
+            .status-badge {
+                display: inline-block;
+                padding: 0.3rem 0.8rem;
+                border-radius: 20px;
+                font-size: 0.8rem;
+                font-weight: 600;
+                margin: 0.2rem;
+            }
+            .status-ready {
+                background-color: #d4edda;
+                color: #155724;
+                border: 1px solid #c3e6cb;
+                padding: 0.5rem 1rem;
+                border-radius: 6px;
+                margin: 1rem 0;
+                font-weight: 600;
+            }
+            .footer {
+                display: none; /* ซ่อนฟุตเตอร์ */
+            }
+            </style>
+        """, unsafe_allow_html=True)
+
+        # Title first - prominent display
+        st.markdown(f'''
+            <div class="stTitle">
+                <span class="title-emoji">🤖</span>
+                <span class="title-text">{t["title"].replace("🤖 ", "")}</span>
+            </div>
+        ''', unsafe_allow_html=True)
+
+        if not st.session_state.app_initialized:
+            st.session_state.app_initialized = True
+            cleanup_cache()
+
+        # Model info with better styling
+        st.markdown(f'<div class="model-info">{t["model_info"]}</div>', unsafe_allow_html=True)
+
+        # Document loading status
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            if st.session_state.local_files:
+                st.success(f"📁 {len(st.session_state.local_files)} local files found")
+            else:
+                st.info("📁 No local files")
+                
+        with col2:
+            if st.session_state.documents_processed and st.session_state.vectorstore:
+                st.success(f"🗃️ Vector DB ready ({st.session_state.document_chunks} chunks)")
+            else:
+                st.warning("🗃️ Vector DB not ready")
+                
+        with col3:
+            if st.session_state.initialization_complete:
+                st.success("✅ System ready")
+            else:
+                st.info("⏳ Loading...")
+
+        # Sidebar
+        with st.sidebar:
+            # Language selection
+            st.markdown(f'<div class="emoji-text"><span class="emoji-inline">🌐</span><span class="bold-text">{t["language"].replace("🌐 ", "")}</span></div>', unsafe_allow_html=True)
+            selected_lang = st.selectbox(
+                "Select Language",
+                options=["ไทย", "English"],
+                index=1 if st.session_state.language == "en" else 0,
+                label_visibility="collapsed"
+            )
+            
+            new_language = "th" if selected_lang == "ไทย" else "en"
+            if new_language != st.session_state.language:
+                st.session_state.language = new_language
+
+            st.markdown("---")
+
+            # Model selection
+            st.markdown(f'<div class="emoji-text"><span class="emoji-inline">🤖</span><span class="bold-text">AI Model</span></div>', unsafe_allow_html=True)
+            available_models = []
+            if GOOGLE_API_KEY:
+                available_models.append("Gemini Pro")
+            if MISTRAL_API_KEY and MISTRAL_AVAILABLE:
+                available_models.append("Mistral Large")
+            
+            if available_models:
+                model_choice = st.selectbox(
+                    "Choose AI Model",
+                    options=available_models,
+                    index=0 if st.session_state.selected_model == "gemini" else (1 if "Mistral Large" in available_models else 0),
+                    label_visibility="collapsed"
+                )
+                
+                # Update selected model
+                if model_choice == "Mistral Large":
+                    st.session_state.selected_model = "mistral"
+                else:
+                    st.session_state.selected_model = "gemini"
+            else:
+                st.error("No AI models available")
+
+            st.markdown("---")
+
+            # Debug mode
+            st.session_state.debug_mode = st.checkbox("🔍 Debug Mode")
+
+            # Reload local files button
+            if st.button(t["reload_local"], use_container_width=True):
+                print("DEBUG: Manual reload triggered")
+                # Clear cache first
+                st.session_state.local_files = []
+                st.session_state.auto_load_attempted = False
+                st.session_state.documents_processed = False
+                st.session_state.vectorstore = None
+                st.session_state.show_loading_messages = True
+                st.session_state.initialization_complete = False
+                # Reset app state to allow messages to show again
+                save_app_state({"initialized": False, "last_load": 0})
+                # Force a fresh scan
+                scan_local_files.clear()  # Clear cache
+                st.rerun()
+
+            # File uploader
+            st.markdown(f'<div class="emoji-text"><span class="emoji-inline">📤</span><span class="bold-text">{t["upload_button"]}</span></div>', unsafe_allow_html=True)
+            uploaded_files = st.file_uploader(
+                "Upload Additional Documents",
+                accept_multiple_files=True,
+                type=['pdf', 'csv', 'txt', 'xlsx', 'xls'],
+                label_visibility="collapsed"
+            )
+
+            # Process additional uploaded files
+            if uploaded_files and uploaded_files != st.session_state.uploaded_files:
+                st.session_state.uploaded_files = uploaded_files
+                with st.spinner(t["processing"]):
+                    success = process_all_documents(st.session_state.local_files, uploaded_files, show_progress=True)
+                    if success:
+                        st.success(t["upload_success"](len(uploaded_files)))
+                    else:
+                        st.error(t["error_processing"])
+
+            st.markdown("---")
+
+            # Display file lists
+            display_file_lists()
+
+            # Advanced settings
+            display_advanced_settings()
+
+            # Debug information
+            if st.session_state.debug_mode and st.session_state.documents_processed:
+                with st.expander("🔍 Debug Information"):
+                    st.write(f"**Documents Status:**")
+                    st.write(f"- Local files: {len(st.session_state.local_files)}")
+                    st.write(f"- Uploaded files: {len(st.session_state.uploaded_files)}")
+                    st.write(f"- Document chunks: {st.session_state.document_chunks}")
+                    st.write(f"- Vector store: {'✅ Ready' if st.session_state.vectorstore else '❌ Not ready'}")
+                    st.write(f"- Initialization complete: {'✅ Yes' if st.session_state.initialization_complete else '❌ No'}")
+                    st.write(f"- Search history: {len(st.session_state.search_history)} queries")
+                    
+                    cache_files = list(CACHE_DIR.glob("vectors_*"))
+                    st.write(f"- Cache files: {len(cache_files)}")
+                    
+                    if st.session_state.vectorstore:
+                        st.write(f"**Vector Database Info:**")
+                        try:
+                            # Get some basic info about the vectorstore
+                            st.write(f"- Vector store type: {type(st.session_state.vectorstore).__name__}")
+                            # Try to get index info
+                            if hasattr(st.session_state.vectorstore, 'index'):
+                                st.write(f"- Index size: {st.session_state.vectorstore.index.ntotal if hasattr(st.session_state.vectorstore.index, 'ntotal') else 'Unknown'}")
+                        except Exception as e:
+                            st.write(f"- Vector store info: {str(e)}")
+
+            # Statistics
+            if st.session_state.debug_mode and st.session_state.documents_processed:
+                st.markdown(f'<div class="emoji-text"><span class="emoji-inline">📊</span><span class="bold-text">{t["stats"]}</span></div>', unsafe_allow_html=True)
+                st.write(f"📁 Local files: {len(st.session_state.local_files)}")
+                st.write(f"📤 Uploaded: {len(st.session_state.uploaded_files)}")
+                st.write(f"🔢 Chunks: {st.session_state.document_chunks}")
+                st.write(f"🔍 Searches: {len(st.session_state.search_history)}")
+                
+                cache_files = list(CACHE_DIR.glob("vectors_*"))
+                st.write(f"💾 Cache files: {len(cache_files)}")
+
+            # Clear buttons - แยกเป็น 2 แถว
+            if st.button(t["clear_chat"], use_container_width=True):
+                st.session_state.messages = []
+                st.success("✅ Chat cleared!")
+            
+            if st.button(t["clear_cache"], use_container_width=True):
+                try:
+                    import shutil
+                    if CACHE_DIR.exists():
+                        shutil.rmtree(CACHE_DIR)
+                        CACHE_DIR.mkdir(exist_ok=True)
+                    st.session_state.vectorstore = None
+                    st.session_state.documents_processed = False
+                    st.session_state.auto_load_attempted = False
+                    st.session_state.show_loading_messages = True
+                    # Reset app state
+                    save_app_state({"initialized": False, "last_load": 0})
+                    st.success("✅ Cache cleared!")
+                except Exception as e:
+                    st.error(f"Error clearing cache: {e}")
+
+        # Main content
+        if st.session_state.documents_processed:
+            # Chat interface in container
+            st.markdown('<div class="chat-container">', unsafe_allow_html=True)
+            
+            # Display chat messages
+            for message in st.session_state.messages:
+                with st.chat_message(message["role"]):
+                    st.markdown(message["content"])
+
+            # Chat input - make sure it's always visible
+            if prompt := st.chat_input(t["ask_placeholder"]):
+                # Add user message
+                st.session_state.messages.append({"role": "user", "content": prompt})
+                with st.chat_message("user"):
+                    st.markdown(prompt)
+
+                # Generate response
+                with st.chat_message("assistant"):
+                    retrieval_chain = setup_advanced_retrieval_chain()
+                    if retrieval_chain:
+                        with st.spinner(t["thinking"]):
+                            try:
+                                response = query_with_analytics(retrieval_chain, prompt)
+                                answer = response.get('answer', 'No answer generated')
+                                
+                                st.markdown(answer)
+                                st.session_state.messages.append({"role": "assistant", "content": answer})
+                                
+                                # Enhanced source display
+                                if 'source_documents' in response and response['source_documents']:
+                                    with st.expander(f"📚 Sources ({len(response['source_documents'])})"):
+                                        for i, doc in enumerate(response['source_documents']):
+                                            st.markdown(f'<span class="bold-text">Source {i+1}:</span>', unsafe_allow_html=True)
+                                            content = doc.page_content[:300] + "..." if len(doc.page_content) > 300 else doc.page_content
+                                            st.markdown(content)
+                                            
+                                            if hasattr(doc, 'metadata') and doc.metadata:
+                                                meta = doc.metadata
+                                                source_type = "📁 Local" if meta.get('file_type') == 'local' else "📤 Uploaded"
+                                                st.caption(f"{source_type}: {meta.get('source_file', 'Unknown')}")
+                                                if st.session_state.debug_mode:
+                                                    st.caption(f"🔢 Chunk: {meta.get('chunk_id', 'N/A')} | Length: {meta.get('content_length', 'N/A')}")
+                                            st.markdown("---")
+                                
+                                # Query analytics
+                                if st.session_state.debug_mode:
+                                    st.caption(f"⏱️ Query time: {response.get('query_time', 0):.2f}s")
+                                
+                            except TimeoutError:
+                                st.error("⏱️ Request timed out. Please try a shorter question.")
+                            except Exception as e:
+                                if "RATE_LIMIT" in str(e):
+                                    st.error("⏳ API rate limit reached. Please wait and try again.")
+                                else:
+                                    st.error(f"🚨 Error: {str(e)}")
+                    else:
+                        st.error("⚠️ Could not set up the retrieval system.")
+            
+            st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        # Always show chat input at the bottom regardless of document state
+        st.markdown('<div style="margin-top: 2rem; min-height: 100px;"></div>', unsafe_allow_html=True)
+        
+        # Global chat input - always visible
+        placeholder_text = t["ask_placeholder"] if st.session_state.documents_processed else "Upload documents first or wait for auto-loading to complete..."
+        if prompt := st.chat_input(placeholder_text):
+            if not st.session_state.documents_processed:
+                st.error("❌ No documents loaded. Please wait for auto-loading to complete or upload files manually.")
+                time.sleep(2)
+                st.rerun()
+            else:
+                # Add user message
+                st.session_state.messages.append({"role": "user", "content": prompt})
+                with st.chat_message("user"):
+                    st.markdown(prompt)
+
+                # Generate response
+                with st.chat_message("assistant"):
+                    retrieval_chain = setup_advanced_retrieval_chain()
+                    if retrieval_chain:
+                        with st.spinner(t["thinking"]):
+                            try:
+                                response = query_with_analytics(retrieval_chain, prompt)
+                                answer = response.get('answer', 'No answer generated')
+                                
+                                st.markdown(answer)
+                                st.session_state.messages.append({"role": "assistant", "content": answer})
+                                
+                                # Enhanced source display
+                                if 'source_documents' in response and response['source_documents']:
+                                    with st.expander(f"📚 Sources ({len(response['source_documents'])})"):
+                                        for i, doc in enumerate(response['source_documents']):
+                                            st.markdown(f'<span class="bold-text">Source {i+1}:</span>', unsafe_allow_html=True)
+                                            content = doc.page_content[:300] + "..." if len(doc.page_content) > 300 else doc.page_content
+                                            st.markdown(content)
+                                            
+                                            if hasattr(doc, 'metadata') and doc.metadata:
+                                                meta = doc.metadata
+                                                source_type = "📁 Local" if meta.get('file_type') == 'local' else "📤 Uploaded"
+                                                st.caption(f"{source_type}: {meta.get('source_file', 'Unknown')}")
+                                                if st.session_state.debug_mode:
+                                                    st.caption(f"🔢 Chunk: {meta.get('chunk_id', 'N/A')} | Length: {meta.get('content_length', 'N/A')}")
+                                            st.markdown("---")
+                                
+                                # Query analytics
+                                if st.session_state.debug_mode:
+                                    st.caption(f"⏱️ Query time: {response.get('query_time', 0):.2f}s")
+                                
+                            except TimeoutError:
+                                st.error("⏱️ Request timed out. Please try a shorter question.")
+                            except Exception as e:
+                                if "RATE_LIMIT" in str(e):
+                                    st.error("⏳ API rate limit reached. Please wait and try again.")
+                                else:
+                                    st.error(f"🚨 Error: {str(e)}")
+                    else:
+                        st.error("⚠️ Could not set up the retrieval system.")
+            
+            # Rerun to update chat display
+            st.rerun()
+
+        else:
+            # Simple info without welcome card
+            st.info("📄 No documents processed yet. System is loading or waiting for file upload.")
+            
+            # Show debug info about file scanning
+            if st.session_state.debug_mode:
+                st.write("**Debug Info:**")
+                st.write(f"- Auto load attempted: {st.session_state.auto_load_attempted}")
+                st.write(f"- Local files found: {len(st.session_state.local_files)}")
+                st.write(f"- Local files: {st.session_state.local_files}")
+                st.write(f"- Documents processed: {st.session_state.documents_processed}")
+                st.write(f"- Current directory: {os.getcwd()}")
+                
+                # Show files in current directory
+                try:
+                    all_files = []
+                    for root, dirs, files in os.walk('.'):
+                        if not root.startswith('.'):
+                            for file in files:
+                                all_files.append(os.path.join(root, file))
+                    st.write(f"- All files in repo: {all_files[:10]}")  # Show first 10
+                except Exception as e:
+                    st.write(f"- Error listing files: {e}")
+            
+            # Show loading progress
+            if st.session_state.auto_load_attempted and not st.session_state.documents_processed:
+                if st.session_state.local_files:
+                    st.warning(f"⚠️ Found {len(st.session_state.local_files)} local files but processing failed. Try reloading.")
+                else:
+                    st.info("💡 No local files found. Upload documents using the sidebar.")
+            
+            # Help section
+            with st.expander("ℹ️ How to use / วิธีใช้งาน", expanded=False):
+                if st.session_state.language == "en":
+                    st.markdown("""
+                    <div class="bold-text">🚀 Advanced RAG Chatbot with Auto-Load:</div>
+                    
+                    <div class="bold-text">📁 Auto-Detection:</div>
+                    - Automatically scans repository for PDF, TXT, CSV, XLSX files
+                    - Respects .gitignore patterns
+                    - Loads documents on startup
+                    
+                    <div class="bold-text">📤 Additional Upload:</div>
+                    - Upload more documents using the sidebar
+                    - Combines with auto-detected files
+                    - Smart caching for fast reloads
+                    
+                    <div class="bold-text">🤖 AI Features:</div>
+                    - Gemini Pro language model
+                    - MiniLM-L6-v2 embeddings for semantic search
+                    - Adjustable similarity threshold
+                    - Configurable response parameters
+                    
+                    <div class="bold-text">💾 Smart Caching:</div>
+                    - Automatic vector caching
+                    - Fast reload for same documents
+                    - Cache cleanup and management
+                    - Persistent storage across sessions
+                    
+                    <div class="bold-text">📊 File Types Supported:</div>
+                    - 📄 PDF files
+                    - 📝 Text files (.txt)
+                    - 📊 CSV files
+                    - 📈 Excel files (.xlsx, .xls)
+                    - 📄 Word documents (.docx)
+                    """, unsafe_allow_html=True)
+                else:
+                    st.markdown("""
+                    <div class="bold-text">🚀 Advanced RAG Chatbot พร้อม Auto-Load:</div>
+                    
+                    <div class="bold-text">📁 การตรวจจับอัตโนมัติ:</div>
+                    - สแกนหาไฟล์ PDF, TXT, CSV, XLSX ใน repository อัตโนมัติ
+                    - เคารพรูปแบบ .gitignore
+                    - โหลดเอกสารตอนเริ่มต้น
+                    
+                    <div class="bold-text">📤 อัปโหลดเพิ่มเติม:</div>
+                    - อัปโหลดเอกสารเพิ่มผ่านแถบด้านข้าง
+                    - รวมกับไฟล์ที่ตรวจจับอัตโนมัติ
+                    - Smart caching สำหรับโหลดเร็ว
+                    
+                    <div class="bold-text">🤖 ฟีเจอร์ AI:</div>
+                    - โมเดลภาษา Gemini Pro
+                    - MiniLM-L6-v2 embeddings สำหรับค้นหาความหมาย
+                    - ปรับระดับความคล้ายได้
+                    - ตั้งค่าพารามิเตอร์การตอบได้
+                    
+                    <div class="bold-text">💾 Smart Caching:</div>
+                    - Cache vectors อัตโนมัติ
+                    - โหลดเร็วสำหรับเอกสารเดิม
+                    - ทำความสะอาดและจัดการ cache
+                    - เก็บข้อมูลถาวรข้ามเซสชั่น
+                    
+                    <div class="bold-text">📊 ประเภทไฟล์ที่รองรับ:</div>
+                    - 📄 ไฟล์ PDF
+                    - 📝 ไฟล์ข้อความ (.txt)
+                    - 📊 ไฟล์ CSV
+                    - 📈 ไฟล์ Excel (.xlsx, .xls)
+                    - 📄 เอกสาร Word (.docx)
+                    """, unsafe_allow_html=True)
+
+        # Always show chat input area at the bottom
+        st.markdown('<div style="margin-top: 2rem;"></div>', unsafe_allow_html=True)
+        
+        # Chat input should always be visible
+        if prompt := st.chat_input(t["ask_placeholder"] if st.session_state.documents_processed else "Upload documents first or wait for auto-loading..."):
+            if not st.session_state.documents_processed:
+                st.warning("⚠️ Please wait for documents to be processed or upload files first.")
+                st.rerun()
+            else:
+                # Process chat normally (this code won't execute in welcome state)
+                st.session_state.messages.append({"role": "user", "content": prompt})
+                with st.chat_message("user"):
+                    st.markdown(prompt)
+
+        # Footer removed - cleaner interface
+        
+    except Exception as e:
+        st.error(f"Application error: {str(e)}")
+        if st.session_state.debug_mode:
+            st.code(str(e))
 
 if __name__ == "__main__":
     main()
