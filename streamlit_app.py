@@ -1231,15 +1231,7 @@ def main():
             else:
                 st.info(f"📁 Found {len(st.session_state.local_files)} local files. Ready to chat!")
 
-        # Footer with mobile-responsive text
-        footer_text = "🤖 Advanced RAG Chatbot v2.1 | Enhanced UX/UI"
-        if st.query_params.get("mobile", "false") == "true":
-            footer_text = "🤖 RAG Chatbot v2.1"
-        
-        st.markdown(
-            f'<div class="footer">{footer_text}<br><small>Created by Arnutt Noitumyae, 2024</small></div>',
-            unsafe_allow_html=True
-        )
+        # Footer removed - cleaner interface
         
     except Exception as e:
         st.error(f"Application error: {str(e)}")
