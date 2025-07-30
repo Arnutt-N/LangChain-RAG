@@ -5,54 +5,79 @@ from dotenv import load_dotenv
 import time
 import hashlib
 import json
-from typing import Optional
+from pathlib import Path
+from typing import Optional, List, Dict, Any
 
 # Load environment variables
 load_dotenv()
 
-# Set page configuration
+# Set page configuration FIRST
 st.set_page_config(
     layout="wide", 
-    page_title="Gen AI : RAG with ChromaDB Cloud",
-    page_icon="🤖"
+    page_title="Gen AI : Advanced RAG Chatbot",
+    page_icon="🤖",
+    initial_sidebar_state="expanded"
 )
 
-# Check dependencies
+# Import dependencies with proper error handling
 @st.cache_data
 def check_dependencies():
+    """Check if all required packages are available with correct versions"""
     missing_packages = []
     try:
-        import chromadb
-        from langchain_community.vectorstores import Chroma
-        from langchain_huggingface import HuggingFaceEmbeddings
+        # Updated imports for latest versions
+        import google.generativeai as genai
         from langchain_google_genai import ChatGoogleGenerativeAI
+        from langchain_huggingface import HuggingFaceEmbeddings
+        from langchain_community.vectorstores import FAISS
+        from langchain_community.document_loaders import PyPDFLoader, CSVLoader, UnstructuredExcelLoader
+        from langchain_text_splitters import RecursiveCharacterTextSplitter
+        from langchain.memory import ConversationBufferMemory
+        from langchain.chains import ConversationalRetrievalChain
     except ImportError as e:
-        if "chromadb" in str(e):
-            missing_packages.append("chromadb")
-        if "langchain" in str(e):
-            missing_packages.append("langchain-community langchain-google-genai langchain-huggingface")
+        missing_package = str(e).split("'")[1] if "'" in str(e) else str(e)
+        missing_packages.append(missing_package)
+    
     return missing_packages
 
+# Check dependencies early
 missing_deps = check_dependencies()
 if missing_deps:
     st.error(f"Missing packages: {', '.join(missing_deps)}")
-    st.info("Install with: pip install chromadb python-dotenv langchain-community langchain-google-genai langchain-huggingface")
+    st.info("""
+    Please install with:
+    ```bash
+    pip install -r requirements.txt
+    ```
+    """)
     st.stop()
 
-# Import required packages
-import chromadb
-from chromadb.api import ClientAPI
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain.memory import ConversationBufferMemory
-from langchain.chains import ConversationalRetrievalChain
-from langchain_community.document_loaders import PyPDFLoader, CSVLoader, TextLoader, UnstructuredExcelLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+# Import all required packages
+try:
+    import google.generativeai as genai
+    from langchain_google_genai import ChatGoogleGenerativeAI
+    from langchain_huggingface import HuggingFaceEmbeddings
+    from langchain_community.vectorstores import FAISS
+    from langchain_community.document_loaders import (
+        PyPDFLoader, 
+        CSVLoader, 
+        TextLoader,
+        UnstructuredExcelLoader
+    )
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
+    from langchain.memory import ConversationBufferMemory
+    from langchain.chains import ConversationalRetrievalChain
+    from langchain.schema import Document
+    import pandas as pd
+    import numpy as np
+    from sentence_transformers import SentenceTransformer
+    
+except ImportError as e:
+    st.error(f"Import error: {e}")
+    st.info("Please check your package versions and requirements.txt")
+    st.stop()
 
 # Configuration
-CHROMA_API_KEY = st.secrets.get("CHROMA_API_KEY") or os.getenv("CHROMA_API_KEY")
-CHROMA_TENANT = st.secrets.get("CHROMA_TENANT") or os.getenv("CHROMA_TENANT")
-CHROMA_DATABASE = st.secrets.get("CHROMA_DATABASE") or os.getenv("CHROMA_DATABASE")
 GOOGLE_API_KEY = (
     st.secrets.get("GOOGLE_API_KEY") or 
     st.secrets.get("GEMINI_API_KEY") or 
@@ -60,69 +85,28 @@ GOOGLE_API_KEY = (
     os.getenv("GEMINI_API_KEY")
 )
 
-# Check required credentials
-if not CHROMA_API_KEY or not CHROMA_TENANT or not CHROMA_DATABASE:
-    st.error("🚨 ChromaDB Cloud credentials not found!")
+if not GOOGLE_API_KEY:
+    st.error("🚨 Google API Key not found!")
     st.info("""
-    **Setup ChromaDB Cloud:**
-    1. Go to https://www.trychroma.com/
-    2. Create free account & get API key
-    3. Create database and get tenant ID
-    4. Add to Streamlit secrets:
-       - CHROMA_API_KEY
-       - CHROMA_TENANT 
-       - CHROMA_DATABASE
+    **Setup Google API Key:**
+    1. Go to https://makersuite.google.com/app/apikey
+    2. Create API key
+    3. Add to Streamlit secrets as GOOGLE_API_KEY
     """)
     st.stop()
 
-if not GOOGLE_API_KEY:
-    st.error("🚨 Google API Key not found!")
-    st.info("Add GOOGLE_API_KEY to Streamlit secrets")
-    st.stop()
-
+# Configure Google AI
 os.environ["GOOGLE_API_KEY"] = GOOGLE_API_KEY
+genai.configure(api_key=GOOGLE_API_KEY)
 
-# ChromaDB Cloud Connection
-_client: Optional[ClientAPI] = None
-_collection = None
-
-def get_chroma_client() -> ClientAPI:
-    """Get or create ChromaDB Cloud client"""
-    global _client
-    if _client is None:
-        try:
-            _client = chromadb.CloudClient(
-                api_key=CHROMA_API_KEY,
-                tenant=CHROMA_TENANT,
-                database=CHROMA_DATABASE
-            )
-            st.success("✅ Connected to ChromaDB Cloud")
-        except Exception as e:
-            st.error(f"❌ Failed to connect to ChromaDB Cloud: {e}")
-            return None
-    return _client
-
-def get_chroma_collection(collection_name="rag_documents"):
-    """Get or create ChromaDB collection"""
-    global _collection
-    if _collection is None:
-        client = get_chroma_client()
-        if client:
-            try:
-                _collection = client.get_or_create_collection(
-                    name=collection_name,
-                    metadata={"description": "RAG documents collection"}
-                )
-                st.info(f"📂 Using collection: {collection_name}")
-            except Exception as e:
-                st.error(f"❌ Failed to get collection: {e}")
-                return None
-    return _collection
+# Setup persistent storage
+CACHE_DIR = Path("./vector_cache")
+CACHE_DIR.mkdir(exist_ok=True)
 
 # Translations
 translations = {
     "en": {
-        "title": "🤖 RAG Chatbot with ChromaDB Cloud",
+        "title": "🤖 Advanced RAG Chatbot",
         "upload_button": "Upload Documents",
         "ask_placeholder": "Ask a question in Thai or English...",
         "processing": "Processing documents...",
@@ -131,19 +115,21 @@ translations = {
         "thinking": "🧠 Generating response...",
         "language": "🌐 Language / ภาษา",
         "clear_chat": "🗑️ Clear Chat",
-        "clear_database": "🗑️ Clear Database",
-        "model_info": "🤖 **Model:** Gemini Pro | 📊 **Embedding:** MiniLM-L6 | ☁️ **Vector DB:** ChromaDB Cloud",
+        "clear_cache": "🗑️ Clear Cache",
+        "model_info": "🤖 **Model:** Gemini Pro | 📊 **Embedding:** MiniLM-L6-v2 | 🗃️ **Vector DB:** FAISS",
         "no_documents": "📄 No documents uploaded yet. Please upload some documents to start chatting!",
         "error_processing": "❌ Error processing documents. Please try again.",
         "error_response": "🚨 Sorry, I encountered an error while generating response.",
-        "checking_existing": "🔍 Checking existing documents...",
-        "found_existing": "✅ Found existing documents in cloud database",
-        "saving_to_db": "☁️ Saving to ChromaDB Cloud...",
-        "db_stats": "Cloud Database Statistics",
-        "connection_status": "Connection Status",
+        "checking_cache": "🔍 Checking cache...",
+        "found_cached": "✅ Found cached vectors",
+        "saving_cache": "💾 Saving to cache...",
+        "stats": "Statistics",
+        "advanced_features": "Advanced Features",
+        "file_analysis": "File Analysis",
+        "search_similarity": "Search Similarity",
     },
     "th": {
-        "title": "🤖 แชทบอท RAG กับ ChromaDB Cloud",
+        "title": "🤖 แชทบอท RAG ขั้นสูง",
         "upload_button": "อัปโหลดเอกสาร",
         "ask_placeholder": "ถามคำถามเป็นภาษาไทยหรืออังกฤษ...",
         "processing": "กำลังประมวลผลเอกสาร...",
@@ -152,16 +138,18 @@ translations = {
         "thinking": "🧠 กำลังสร้างคำตอบ...",
         "language": "🌐 ภาษา / Language",
         "clear_chat": "🗑️ ล้างการแชท",
-        "clear_database": "🗑️ ล้างฐานข้อมูล",
-        "model_info": "🤖 **โมเดล:** Gemini Pro | 📊 **Embedding:** MiniLM-L6 | ☁️ **Vector DB:** ChromaDB Cloud",
+        "clear_cache": "🗑️ ล้าง Cache",
+        "model_info": "🤖 **โมเดล:** Gemini Pro | 📊 **Embedding:** MiniLM-L6-v2 | 🗃️ **Vector DB:** FAISS",
         "no_documents": "📄 ยังไม่มีเอกสารอัปโหลด กรุณาอัปโหลดเอกสารเพื่อเริ่มแชท!",
         "error_processing": "❌ เกิดข้อผิดพลาดในการประมวลผลเอกสาร",
         "error_response": "🚨 ขออภัย เกิดข้อผิดพลาดในการสร้างคำตอบ",
-        "checking_existing": "🔍 ตรวจสอบเอกสารที่มีอยู่...",
-        "found_existing": "✅ พบเอกสารที่มีอยู่ในฐานข้อมูลคลาวด์",
-        "saving_to_db": "☁️ บันทึกลง ChromaDB Cloud...",
-        "db_stats": "สถิติฐานข้อมูลคลาวด์",
-        "connection_status": "สถานะการเชื่อมต่อ",
+        "checking_cache": "🔍 ตรวจสอบ cache...",
+        "found_cached": "✅ พบ vectors ใน cache",
+        "saving_cache": "💾 บันทึกลง cache...",
+        "stats": "สถิติ",
+        "advanced_features": "ฟีเจอร์ขั้นสูง",
+        "file_analysis": "การวิเคราะห์ไฟล์",
+        "search_similarity": "ความคล้ายในการค้นหา",
     }
 }
 
@@ -177,7 +165,11 @@ def init_session_state():
         "debug_mode": False,
         "last_request_time": 0,
         "app_initialized": False,
-        "chroma_connected": False,
+        "file_analysis": {},
+        "search_history": [],
+        "similarity_threshold": 0.7,
+        "max_tokens": 512,
+        "temperature": 0.1,
     }
     
     for key, value in defaults.items():
@@ -186,9 +178,10 @@ def init_session_state():
 
 init_session_state()
 
-# Initialize embeddings
+# Optimized embeddings with latest HuggingFace integration
 @st.cache_resource
 def get_embeddings():
+    """Initialize embeddings with latest langchain-huggingface"""
     try:
         embeddings = HuggingFaceEmbeddings(
             model_name="sentence-transformers/all-MiniLM-L6-v2",
@@ -199,70 +192,121 @@ def get_embeddings():
         # Test embeddings
         test_embedding = embeddings.embed_query("test")
         if len(test_embedding) > 0:
+            st.success("✅ Embeddings model loaded successfully")
             return embeddings
         else:
-            st.error("Embeddings model failed to generate vectors")
+            st.error("❌ Embeddings model failed to generate vectors")
             return None
             
     except Exception as e:
         st.error(f"Error initializing embeddings: {e}")
         return None
 
-# Database functions
-def get_file_hash(content):
+# Enhanced caching system
+def get_file_hash(content: bytes) -> str:
     """Generate hash from file content"""
-    if isinstance(content, str):
-        content = content.encode('utf-8')
     return hashlib.md5(content).hexdigest()
 
-def check_document_exists(collection, file_hash):
-    """Check if document already exists in ChromaDB Cloud"""
-    try:
-        results = collection.get(
-            where={"file_hash": file_hash},
-            limit=1
-        )
-        return len(results['ids']) > 0
-    except Exception as e:
-        st.warning(f"Error checking document existence: {e}")
-        return False
+def get_cache_key(file_hashes: Dict[str, str]) -> str:
+    """Generate cache key from file hashes"""
+    sorted_hashes = sorted(file_hashes.items())
+    cache_string = json.dumps(sorted_hashes, sort_keys=True)
+    return hashlib.md5(cache_string.encode()).hexdigest()[:16]
 
-def get_database_stats(collection):
-    """Get database statistics from ChromaDB Cloud"""
+def save_vectors_to_cache(vectorstore: FAISS, cache_key: str, file_info: Dict):
+    """Save vectorstore to cache"""
     try:
-        count = collection.count()
+        cache_path = CACHE_DIR / f"vectors_{cache_key}"
+        cache_path.mkdir(exist_ok=True)
         
-        # Get unique files
-        results = collection.get(include=["metadatas"])
-        unique_files = set()
-        for metadata in results.get('metadatas', []):
-            if metadata and 'source_file' in metadata:
-                unique_files.add(metadata['source_file'])
+        # Save FAISS index
+        vectorstore.save_local(str(cache_path))
         
-        return {
-            "documents": len(unique_files),
-            "chunks": count,
-            "status": "connected"
+        # Save metadata
+        metadata = {
+            "file_info": file_info,
+            "timestamp": time.time(),
+            "cache_key": cache_key,
+            "chunks": st.session_state.document_chunks
         }
-    except Exception as e:
-        st.warning(f"Error getting database stats: {e}")
-        return {"documents": 0, "chunks": 0, "status": "error"}
-
-def clear_database(collection):
-    """Clear all documents from ChromaDB Cloud"""
-    try:
-        # Get all IDs and delete them
-        all_data = collection.get()
-        if all_data['ids']:
-            collection.delete(ids=all_data['ids'])
+        
+        with open(cache_path / "metadata.json", "w", encoding='utf-8') as f:
+            json.dump(metadata, f, ensure_ascii=False, indent=2)
+        
         return True
     except Exception as e:
-        st.error(f"Error clearing database: {e}")
+        st.warning(f"Could not save to cache: {e}")
         return False
 
-# Document processing functions
-def load_single_uploaded_file(uploaded_file):
-    """Load a single uploaded file"""
+def load_vectors_from_cache(cache_key: str):
+    """Load vectorstore from cache"""
+    try:
+        cache_path = CACHE_DIR / f"vectors_{cache_key}"
+        metadata_path = cache_path / "metadata.json"
+        
+        if not cache_path.exists() or not metadata_path.exists():
+            return None, None
+        
+        # Load metadata
+        with open(metadata_path, "r", encoding='utf-8') as f:
+            metadata = json.load(f)
+        
+        # Check if cache is not too old (24 hours)
+        if time.time() - metadata["timestamp"] > 86400:
+            return None, None
+        
+        # Load embeddings
+        embeddings = get_embeddings()
+        if not embeddings:
+            return None, None
+        
+        # Load FAISS vectorstore
+        vectorstore = FAISS.load_local(
+            str(cache_path), 
+            embeddings, 
+            allow_dangerous_deserialization=True
+        )
+        
+        return vectorstore, metadata
+        
+    except Exception as e:
+        st.warning(f"Could not load from cache: {e}")
+        return None, None
+
+# Enhanced document processing
+def analyze_file(uploaded_file) -> Dict[str, Any]:
+    """Analyze uploaded file and return metadata"""
+    try:
+        file_size = len(uploaded_file.getvalue())
+        file_extension = uploaded_file.name.split('.')[-1].lower()
+        
+        analysis = {
+            "name": uploaded_file.name,
+            "size": file_size,
+            "type": file_extension,
+            "size_mb": round(file_size / (1024 * 1024), 2),
+            "hash": get_file_hash(uploaded_file.getvalue())
+        }
+        
+        # Type-specific analysis
+        if file_extension == 'pdf':
+            analysis["estimated_pages"] = max(1, file_size // 50000)  # Rough estimate
+        elif file_extension == 'csv':
+            try:
+                df = pd.read_csv(uploaded_file)
+                analysis["rows"] = len(df)
+                analysis["columns"] = len(df.columns)
+                uploaded_file.seek(0)  # Reset file pointer
+            except:
+                pass
+        
+        return analysis
+    except Exception as e:
+        st.warning(f"Could not analyze file {uploaded_file.name}: {e}")
+        return {"name": uploaded_file.name, "error": str(e)}
+
+def load_single_uploaded_file(uploaded_file) -> List[Document]:
+    """Load a single uploaded file with enhanced error handling"""
     try:
         file_extension = uploaded_file.name.split('.')[-1].lower()
         
@@ -271,6 +315,7 @@ def load_single_uploaded_file(uploaded_file):
             temp_file_path = temp_file.name
         
         try:
+            # Updated document loaders
             if file_extension == 'pdf':
                 loader = PyPDFLoader(temp_file_path)
             elif file_extension == 'csv':
@@ -280,22 +325,25 @@ def load_single_uploaded_file(uploaded_file):
             elif file_extension in ['xlsx', 'xls']:
                 loader = UnstructuredExcelLoader(temp_file_path)
             else:
+                st.warning(f"Unsupported file type: {file_extension}")
                 return []
             
             docs = loader.load()
             cleaned_docs = []
             
-            for doc in docs:
+            for i, doc in enumerate(docs):
                 if hasattr(doc, 'page_content') and doc.page_content.strip():
                     content = doc.page_content.replace('\n\n', '\n').strip()
-                    if len(content) > 50:
+                    if len(content) > 50:  # Only include meaningful content
                         doc.page_content = content
-                        # Add metadata
+                        # Enhanced metadata
                         doc.metadata.update({
                             'source_file': uploaded_file.name,
                             'file_hash': get_file_hash(uploaded_file.getvalue()),
-                            'upload_time': str(time.time()),
-                            'file_size': len(uploaded_file.getvalue())
+                            'upload_time': time.time(),
+                            'file_size': len(uploaded_file.getvalue()),
+                            'chunk_id': i,
+                            'content_length': len(content)
                         })
                         cleaned_docs.append(doc)
             
@@ -308,96 +356,95 @@ def load_single_uploaded_file(uploaded_file):
                 pass
         
     except Exception as e:
-        raise Exception(f"Error loading uploaded file {uploaded_file.name}: {str(e)}")
+        st.error(f"Error loading file {uploaded_file.name}: {e}")
+        return []
 
-def process_documents_to_cloud(uploaded_files):
-    """Process documents and save to ChromaDB Cloud"""
+def process_documents_with_cache(uploaded_files: List) -> bool:
+    """Process documents with intelligent caching"""
     t = translations[st.session_state.language]
     
     if not uploaded_files:
         return False
     
-    # Get ChromaDB collection
-    collection = get_chroma_collection()
-    if not collection:
-        st.error("Could not connect to ChromaDB Cloud")
-        return False
+    # Analyze files and generate cache key
+    file_info = {}
+    file_hashes = {}
+    
+    for uploaded_file in uploaded_files:
+        analysis = analyze_file(uploaded_file)
+        file_info[uploaded_file.name] = analysis
+        file_hashes[uploaded_file.name] = analysis.get("hash", "")
+    
+    cache_key = get_cache_key(file_hashes)
+    
+    # Store file analysis
+    st.session_state.file_analysis = file_info
+    
+    # Try to load from cache
+    st.info(f"🔍 {t['checking_cache']}")
+    cached_vectorstore, cached_metadata = load_vectors_from_cache(cache_key)
+    
+    if cached_vectorstore and cached_metadata:
+        st.success(f"✅ {t['found_cached']}")
+        st.session_state.vectorstore = cached_vectorstore
+        st.session_state.document_chunks = cached_metadata.get("chunks", 0)
+        st.session_state.documents_processed = True
+        return True
+    
+    # Process documents if not in cache
+    st.info(f"📝 {t['processing']}")
     
     all_documents = []
-    new_files = 0
-    
     progress_bar = st.progress(0)
     status_text = st.empty()
     
     try:
-        # Process each file
+        # Load documents
         for i, uploaded_file in enumerate(uploaded_files):
-            status_text.text(f"Processing {uploaded_file.name}...")
-            progress_bar.progress((i + 1) / len(uploaded_files) * 0.6)
+            status_text.text(f"Loading {uploaded_file.name}...")
+            progress_bar.progress((i + 1) / len(uploaded_files) * 0.5)
             
-            # Check if file already exists
-            file_hash = get_file_hash(uploaded_file.getvalue())
-            
-            if check_document_exists(collection, file_hash):
-                st.info(f"📄 {uploaded_file.name} already exists in cloud database")
-                continue
-            
-            try:
-                docs = load_single_uploaded_file(uploaded_file)
-                if docs:
-                    all_documents.extend(docs)
-                    new_files += 1
-                    
-            except Exception as e:
-                st.warning(f"Could not process {uploaded_file.name}: {e}")
-                continue
+            docs = load_single_uploaded_file(uploaded_file)
+            all_documents.extend(docs)
         
         if not all_documents:
-            progress_bar.empty()
-            status_text.empty()
-            if new_files == 0:
-                st.info(t["found_existing"])
-                return True
-            else:
-                st.warning("No new documents to process")
-                return False
+            st.warning("No documents could be processed")
+            return False
         
-        # Split documents
-        status_text.text("🔄 Splitting documents into chunks...")
+        # Split documents with updated text splitter
+        status_text.text("🔄 Splitting documents...")
         progress_bar.progress(0.7)
         
         text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=600,
             chunk_overlap=50,
             separators=["\n\n", "\n", ". ", " ", ""],
+            length_function=len,
         )
         texts = text_splitter.split_documents(all_documents)
         
         if not texts:
-            progress_bar.empty()
-            status_text.empty()
-            st.warning("No text content found")
+            st.warning("No text content found after splitting")
             return False
         
-        # Save to ChromaDB Cloud
-        status_text.text(f"☁️ {t['saving_to_db']}")
+        # Create embeddings and vectorstore
+        status_text.text("📊 Creating embeddings...")
         progress_bar.progress(0.9)
         
-        # Prepare data for ChromaDB Cloud
-        ids = [f"doc_{i}_{int(time.time())}" for i in range(len(texts))]
-        documents = [text.page_content for text in texts]
-        metadatas = [text.metadata for text in texts]
+        embeddings = get_embeddings()
+        if not embeddings:
+            return False
         
-        # Add documents to ChromaDB Cloud
-        collection.add(
-            ids=ids,
-            documents=documents,
-            metadatas=metadatas
-        )
+        vectorstore = FAISS.from_documents(texts, embeddings)
         
+        # Save to cache
+        status_text.text(f"💾 {t['saving_cache']}")
+        save_vectors_to_cache(vectorstore, cache_key, file_info)
+        
+        # Update session state
+        st.session_state.vectorstore = vectorstore
         st.session_state.document_chunks = len(texts)
         st.session_state.documents_processed = True
-        st.session_state.chroma_connected = True
         
         progress_bar.progress(1.0)
         progress_bar.empty()
@@ -406,83 +453,42 @@ def process_documents_to_cloud(uploaded_files):
         return True
         
     except Exception as e:
-        progress_bar.empty()
-        status_text.empty()
+        if 'progress_bar' in locals():
+            progress_bar.empty()
+        if 'status_text' in locals():
+            status_text.empty()
         st.error(f"Error processing documents: {e}")
         return False
 
-# Rate limiting
-def check_rate_limit():
-    current_time = time.time()
-    time_since_last = current_time - st.session_state.last_request_time
-    min_interval = 3
-    
-    if time_since_last < min_interval:
-        wait_time = min_interval - time_since_last
-        time.sleep(wait_time)
-    
-    st.session_state.last_request_time = time.time()
-
-# Custom ChromaDB retriever for LangChain
-class ChromaCloudRetriever:
-    """Custom retriever for ChromaDB Cloud"""
-    
-    def __init__(self, collection, embeddings, k=3):
-        self.collection = collection
-        self.embeddings = embeddings
-        self.k = k
-    
-    def get_relevant_documents(self, query):
-        """Get relevant documents from ChromaDB Cloud"""
-        try:
-            # Generate query embedding
-            query_embedding = self.embeddings.embed_query(query)
-            
-            # Query ChromaDB Cloud
-            results = self.collection.query(
-                query_embeddings=[query_embedding],
-                n_results=self.k,
-                include=["documents", "metadatas"]
-            )
-            
-            # Convert to LangChain Document format
-            documents = []
-            for doc, metadata in zip(results['documents'][0], results['metadatas'][0]):
-                from langchain.schema import Document
-                documents.append(Document(page_content=doc, metadata=metadata or {}))
-            
-            return documents
-            
-        except Exception as e:
-            st.error(f"Error retrieving documents: {e}")
-            return []
-
-# Query functions
-def setup_retrieval_chain():
-    """Setup retrieval chain with ChromaDB Cloud"""
+# Enhanced query processing
+def setup_advanced_retrieval_chain():
+    """Setup retrieval chain with advanced features"""
     try:
-        collection = get_chroma_collection()
-        embeddings = get_embeddings()
-        
-        if not collection or not embeddings:
+        if not st.session_state.vectorstore:
             return None
         
-        # Create custom retriever
-        retriever = ChromaCloudRetriever(collection, embeddings, k=3)
+        # Create retriever with similarity threshold
+        retriever = st.session_state.vectorstore.as_retriever(
+            search_type="similarity_score_threshold",
+            search_kwargs={
+                "k": 5,
+                "score_threshold": st.session_state.similarity_threshold
+            }
+        )
         
+        # Enhanced memory
         memory = ConversationBufferMemory(
             memory_key="chat_history",
             return_messages=True,
             output_key="answer"
         )
         
+        # Updated Gemini model with latest API
         llm = ChatGoogleGenerativeAI(
             model="gemini-pro",
-            temperature=0.1,
-            max_tokens=512,
+            temperature=st.session_state.temperature,
+            max_tokens=st.session_state.max_tokens,
             google_api_key=GOOGLE_API_KEY,
-            request_timeout=30,
-            max_retries=1,
         )
         
         qa_chain = ConversationalRetrievalChain.from_llm(
@@ -499,23 +505,106 @@ def setup_retrieval_chain():
         st.error(f"Error setting up retrieval chain: {e}")
         return None
 
-def query_with_timeout(chain, question, timeout=30):
+def query_with_analytics(chain, question: str) -> Dict[str, Any]:
+    """Query with analytics and error handling"""
     try:
-        check_rate_limit()
+        start_time = time.time()
+        
+        # Store search history
+        st.session_state.search_history.append({
+            "question": question,
+            "timestamp": time.time()
+        })
+        
+        # Keep only last 10 searches
+        if len(st.session_state.search_history) > 10:
+            st.session_state.search_history = st.session_state.search_history[-10:]
+        
         response = chain.invoke({"question": question})
+        
+        # Add analytics
+        response["query_time"] = time.time() - start_time
+        response["question"] = question
+        
         return response
+        
     except Exception as e:
         error_msg = str(e).lower()
         if "quota" in error_msg or "rate" in error_msg or "429" in error_msg:
             raise Exception("RATE_LIMIT")
-        elif "timeout" in error_msg or "timed out" in error_msg:
+        elif "timeout" in error_msg:
             raise TimeoutError("Request timed out")
         else:
             raise e
 
+# UI Helper functions
+def display_file_analysis():
+    """Display file analysis in sidebar"""
+    if st.session_state.file_analysis:
+        st.markdown("**📊 File Analysis**")
+        for filename, analysis in st.session_state.file_analysis.items():
+            with st.expander(f"📄 {filename}"):
+                st.write(f"Size: {analysis.get('size_mb', 0)} MB")
+                st.write(f"Type: {analysis.get('type', 'unknown')}")
+                if 'rows' in analysis:
+                    st.write(f"Rows: {analysis['rows']}")
+                    st.write(f"Columns: {analysis['columns']}")
+                if 'estimated_pages' in analysis:
+                    st.write(f"Est. Pages: {analysis['estimated_pages']}")
+
+def display_advanced_settings():
+    """Display advanced settings"""
+    with st.expander("⚙️ Advanced Settings"):
+        st.session_state.similarity_threshold = st.slider(
+            "Similarity Threshold",
+            min_value=0.0,
+            max_value=1.0,
+            value=st.session_state.similarity_threshold,
+            step=0.1,
+            help="Higher values = more strict matching"
+        )
+        
+        st.session_state.max_tokens = st.slider(
+            "Max Response Tokens",
+            min_value=128,
+            max_value=2048,
+            value=st.session_state.max_tokens,
+            step=128
+        )
+        
+        st.session_state.temperature = st.slider(
+            "Temperature",
+            min_value=0.0,
+            max_value=1.0,
+            value=st.session_state.temperature,
+            step=0.1,
+            help="Higher values = more creative responses"
+        )
+
+def cleanup_cache():
+    """Clean up old cache files"""
+    try:
+        current_time = time.time()
+        for cache_dir in CACHE_DIR.glob("vectors_*"):
+            metadata_path = cache_dir / "metadata.json"
+            if metadata_path.exists():
+                try:
+                    with open(metadata_path, "r") as f:
+                        metadata = json.load(f)
+                    
+                    # Delete if older than 7 days
+                    if current_time - metadata["timestamp"] > 604800:
+                        import shutil
+                        shutil.rmtree(cache_dir)
+                except:
+                    continue
+    except Exception as e:
+        st.warning(f"Error cleaning cache: {e}")
+
 # Main application
 def main():
     try:
+        # Handle language
         if "language" in st.query_params:
             st.session_state.language = st.query_params["language"]
 
@@ -523,26 +612,27 @@ def main():
 
         if not st.session_state.app_initialized:
             st.session_state.app_initialized = True
+            cleanup_cache()
 
-        # Custom CSS
+        # Enhanced CSS
         st.markdown("""
             <style>
             .main .block-container {
                 max-width: 1200px;
                 padding-top: 2rem;
-                padding-bottom: 2rem;
+                padding-bottom: 3rem;
             }
             .stTitle {
                 text-align: center;
                 color: #1f77b4;
+                margin-bottom: 2rem;
             }
-            .connection-status {
-                background-color: #e8f5e8;
-                border: 1px solid #4caf50;
-                border-radius: 5px;
-                padding: 10px;
-                margin: 10px 0;
-                font-size: 14px;
+            .metric-card {
+                background-color: #f8f9fa;
+                border: 1px solid #dee2e6;
+                border-radius: 8px;
+                padding: 1rem;
+                margin: 0.5rem 0;
             }
             .footer {
                 position: fixed;
@@ -556,14 +646,7 @@ def main():
                 background-color: white;
                 width: 100%;
                 border-top: 1px solid #eee;
-            }
-            .debug-info {
-                background-color: #f8f9fa;
-                border: 1px solid #dee2e6;
-                border-radius: 5px;
-                padding: 10px;
-                margin: 10px 0;
-                font-size: 12px;
+                z-index: 999;
             }
             </style>
         """, unsafe_allow_html=True)
@@ -576,7 +659,6 @@ def main():
                 "Select Language",
                 options=["ไทย", "English"],
                 index=1 if st.session_state.language == "en" else 0,
-                key="language_selection",
                 label_visibility="collapsed"
             )
             
@@ -586,18 +668,8 @@ def main():
 
             st.markdown("---")
 
-            # Connection status
-            st.markdown(f"**{t['connection_status']}**")
-            client = get_chroma_client()
-            if client:
-                st.markdown('<div class="connection-status">🟢 Connected to ChromaDB Cloud</div>', unsafe_allow_html=True)
-                st.session_state.chroma_connected = True
-            else:
-                st.markdown('<div class="connection-status">🔴 Connection Failed</div>', unsafe_allow_html=True)
-                st.session_state.chroma_connected = False
-
-            # Debug mode toggle
-            st.session_state.debug_mode = st.checkbox("🔍 Debug Mode", value=st.session_state.debug_mode)
+            # Debug mode
+            st.session_state.debug_mode = st.checkbox("🔍 Debug Mode")
 
             # File uploader
             st.markdown(f"**{t['upload_button']}**")
@@ -605,16 +677,14 @@ def main():
                 "Upload Documents",
                 accept_multiple_files=True,
                 type=['pdf', 'csv', 'txt', 'xlsx', 'xls'],
-                key="file_uploader",
-                label_visibility="collapsed",
-                disabled=not st.session_state.chroma_connected
+                label_visibility="collapsed"
             )
 
-            # Process uploaded files
-            if uploaded_files and uploaded_files != st.session_state.uploaded_files and st.session_state.chroma_connected:
+            # Process files
+            if uploaded_files and uploaded_files != st.session_state.uploaded_files:
                 st.session_state.uploaded_files = uploaded_files
                 with st.spinner(t["processing"]):
-                    success = process_documents_to_cloud(uploaded_files)
+                    success = process_documents_with_cache(uploaded_files)
                     if success:
                         st.success(t["upload_success"](len(uploaded_files)))
                     else:
@@ -622,20 +692,21 @@ def main():
 
             st.markdown("---")
 
-            # Database statistics
-            if st.session_state.debug_mode and st.session_state.chroma_connected:
-                st.markdown(f"**{t['db_stats']}**")
-                collection = get_chroma_collection()
-                if collection:
-                    db_stats = get_database_stats(collection)
-                    st.write(f"📄 Documents: {db_stats['documents']}")
-                    st.write(f"🔢 Chunks: {db_stats['chunks']}")
-                    st.write(f"🔗 Status: {db_stats['status']}")
-                    
-                    # Show ChromaDB Cloud info
-                    st.markdown("**Cloud Info:**")
-                    st.write(f"🏢 Tenant: {CHROMA_TENANT[:8]}...")
-                    st.write(f"💾 Database: {CHROMA_DATABASE}")
+            # File analysis
+            display_file_analysis()
+
+            # Advanced settings
+            display_advanced_settings()
+
+            # Statistics
+            if st.session_state.debug_mode and st.session_state.documents_processed:
+                st.markdown(f"**📊 {t['stats']}**")
+                st.write(f"📄 Documents: {len(st.session_state.uploaded_files)}")
+                st.write(f"🔢 Chunks: {st.session_state.document_chunks}")
+                st.write(f"🔍 Searches: {len(st.session_state.search_history)}")
+                
+                cache_files = list(CACHE_DIR.glob("vectors_*"))
+                st.write(f"💾 Cache files: {len(cache_files)}")
 
             # Clear buttons
             col1, col2 = st.columns(2)
@@ -645,35 +716,25 @@ def main():
                     st.success("✅ Chat cleared!")
             
             with col2:
-                if st.button(t["clear_database"], use_container_width=True, disabled=not st.session_state.chroma_connected):
-                    collection = get_chroma_collection()
-                    if collection and clear_database(collection):
+                if st.button(t["clear_cache"], use_container_width=True):
+                    try:
+                        import shutil
+                        if CACHE_DIR.exists():
+                            shutil.rmtree(CACHE_DIR)
+                            CACHE_DIR.mkdir(exist_ok=True)
+                        st.session_state.vectorstore = None
                         st.session_state.documents_processed = False
                         st.session_state.uploaded_files = []
-                        st.success("✅ Cloud database cleared!")
-                    else:
-                        st.error("❌ Failed to clear database")
+                        st.success("✅ Cache cleared!")
+                    except Exception as e:
+                        st.error(f"Error clearing cache: {e}")
 
         # Main content
         st.title(t["title"])
         st.info(t["model_info"])
-        
-        if st.session_state.chroma_connected:
-            st.success("🌐 Connected to ChromaDB Cloud - your documents are stored securely in the cloud!")
-        else:
-            st.error("❌ Could not connect to ChromaDB Cloud. Please check your credentials.")
-
-        # Check for existing documents
-        if st.session_state.chroma_connected and not st.session_state.documents_processed:
-            collection = get_chroma_collection()
-            if collection:
-                stats = get_database_stats(collection)
-                if stats["chunks"] > 0:
-                    st.session_state.documents_processed = True
-                    st.info(t["found_existing"])
 
         # Chat interface
-        if st.session_state.chroma_connected and st.session_state.documents_processed:
+        if st.session_state.documents_processed:
             # Display chat messages
             for message in st.session_state.messages:
                 with st.chat_message(message["role"]):
@@ -688,33 +749,40 @@ def main():
 
                 # Generate response
                 with st.chat_message("assistant"):
-                    retrieval_chain = setup_retrieval_chain()
+                    retrieval_chain = setup_advanced_retrieval_chain()
                     if retrieval_chain:
                         with st.spinner(t["thinking"]):
                             try:
-                                enhanced_prompt = f"Based on the provided documents, please answer: {prompt}"
-                                response = query_with_timeout(retrieval_chain, enhanced_prompt)
+                                response = query_with_analytics(retrieval_chain, prompt)
                                 answer = response.get('answer', 'No answer generated')
                                 
                                 st.markdown(answer)
                                 st.session_state.messages.append({"role": "assistant", "content": answer})
                                 
-                                # Show sources
+                                # Enhanced source display
                                 if 'source_documents' in response and response['source_documents']:
-                                    with st.expander("📚 Sources"):
+                                    with st.expander(f"📚 Sources ({len(response['source_documents'])})"):
                                         for i, doc in enumerate(response['source_documents']):
                                             st.markdown(f"**Source {i+1}:**")
                                             content = doc.page_content[:300] + "..." if len(doc.page_content) > 300 else doc.page_content
                                             st.markdown(content)
+                                            
                                             if hasattr(doc, 'metadata') and doc.metadata:
-                                                st.caption(f"File: {doc.metadata.get('source_file', 'Unknown')}")
+                                                meta = doc.metadata
+                                                st.caption(f"📄 File: {meta.get('source_file', 'Unknown')}")
+                                                if st.session_state.debug_mode:
+                                                    st.caption(f"🔢 Chunk: {meta.get('chunk_id', 'N/A')} | Length: {meta.get('content_length', 'N/A')}")
                                             st.markdown("---")
                                 
+                                # Query analytics
+                                if st.session_state.debug_mode:
+                                    st.caption(f"⏱️ Query time: {response.get('query_time', 0):.2f}s")
+                                
                             except TimeoutError:
-                                st.error("⏱️ Request timed out. Please try asking a shorter question.")
+                                st.error("⏱️ Request timed out. Please try a shorter question.")
                             except Exception as e:
                                 if "RATE_LIMIT" in str(e):
-                                    st.error("⏳ API rate limit reached. Please wait a moment and try again.")
+                                    st.error("⏳ API rate limit reached. Please wait and try again.")
                                 else:
                                     st.error(f"🚨 Error: {str(e)}")
                     else:
@@ -727,71 +795,79 @@ def main():
             with st.expander("ℹ️ How to use / วิธีใช้งาน", expanded=True):
                 if st.session_state.language == "en":
                     st.markdown("""
-                    **How to use this ChromaDB Cloud RAG Chatbot:**
-                    1. ☁️ **Cloud Connection**: Automatically connects to your ChromaDB Cloud database
-                    2. 📁 **Upload Documents**: Use the sidebar to upload PDF, TXT, CSV, or XLSX files
-                    3. 🌐 **Cloud Storage**: Documents are stored securely in ChromaDB Cloud
-                    4. 🚀 **Global Access**: Access your documents from anywhere with internet
-                    5. 💬 **Start Chatting**: Ask questions about your documents
-                    6. 🔍 **Debug Mode**: See database statistics and debug information
+                    **🚀 Advanced RAG Chatbot Features:**
                     
-                    **ChromaDB Cloud Benefits:**
-                    - ✅ **Managed service** - no infrastructure to manage
-                    - ✅ **Global availability** - access from anywhere
-                    - ✅ **Auto-scaling** - handles traffic spikes automatically
-                    - ✅ **Secure** - enterprise-grade security
-                    - ✅ **Fast** - optimized for vector operations
-                    - ✅ **Duplicate detection** - same files won't be processed twice
+                    **📁 Document Processing:**
+                    - Upload multiple files (PDF, TXT, CSV, XLSX)
+                    - Intelligent caching for faster reloading
+                    - File analysis and metadata extraction
+                    - Duplicate detection and handling
                     
-                    **Setup Requirements:**
-                    - ChromaDB Cloud account
-                    - API key, tenant ID, and database name
-                    - Add credentials to Streamlit secrets
+                    **🤖 AI Features:**
+                    - Gemini Pro language model
+                    - MiniLM-L6-v2 embeddings for semantic search
+                    - Adjustable similarity threshold
+                    - Configurable response parameters
                     
-                    **Supported File Types:**
-                    - 📄 PDF files
-                    - 📝 Text files (.txt)
-                    - 📊 CSV files  
-                    - 📈 Excel files (.xlsx, .xls)
+                    **⚙️ Advanced Settings:**
+                    - Similarity threshold control
+                    - Response length adjustment
+                    - Temperature settings for creativity
+                    - Debug mode for detailed analytics
+                    
+                    **💾 Smart Caching:**
+                    - Automatic vector caching
+                    - Fast reload for same documents
+                    - Cache cleanup and management
+                    - Persistent storage across sessions
+                    
+                    **📊 Analytics:**
+                    - File analysis and statistics
+                    - Query performance metrics
+                    - Search history tracking
+                    - Debug information display
                     """)
                 else:
                     st.markdown("""
-                    **วิธีใช้งาน ChromaDB Cloud RAG Chatbot:**
-                    1. ☁️ **เชื่อมต่อคลาวด์**: เชื่อมต่อฐานข้อมูล ChromaDB Cloud อัตโนมัติ
-                    2. 📁 **อัปโหลดเอกสาร**: ใช้แถบด้านข้างอัปโหลดไฟล์ PDF, TXT, CSV หรือ XLSX
-                    3. 🌐 **เก็บข้อมูลคลาวด์**: เอกสารถูกเก็บอย่างปลอดภัยใน ChromaDB Cloud
-                    4. 🚀 **เข้าถึงจากทุกที่**: เข้าถึงเอกสารจากทุกที่ที่มีอินเทอร์เน็ต
-                    5. 💬 **เริ่มแชท**: ถามคำถามเกี่ยวกับเอกสาร
-                    6. 🔍 **โหมดดีบัก**: ดูสถิติฐานข้อมูลและข้อมูลดีบัก
+                    **🚀 ฟีเจอร์ Advanced RAG Chatbot:**
                     
-                    **ข้อดี ChromaDB Cloud:**
-                    - ✅ **บริการที่ได้รับการจัดการ** - ไม่ต้องจัดการ infrastructure
-                    - ✅ **พร้อมใช้งานทั่วโลก** - เข้าถึงได้จากทุกที่
-                    - ✅ **ปรับขนาดอัตโนมัติ** - รองรับการใช้งานที่เพิ่มขึ้น
-                    - ✅ **ปลอดภัย** - ความปลอดภัยระดับองค์กร
-                    - ✅ **เร็ว** - เหมาะสำหรับการดำเนินการเวกเตอร์
-                    - ✅ **ตรวจจับไฟล์ซ้ำ** - ไฟล์เดิมไม่ถูกประมวลผลซ้ำ
+                    **📁 การประมวลผลเอกสาร:**
+                    - อัปโหลดหลายไฟล์ (PDF, TXT, CSV, XLSX)
+                    - Caching อัจฉริยะสำหรับโหลดเร็วขึ้น
+                    - การวิเคราะห์ไฟล์และ metadata
+                    - ตรวจจับและจัดการไฟล์ซ้ำ
                     
-                    **ข้อกำหนดการตั้งค่า:**
-                    - บัญชี ChromaDB Cloud
-                    - API key, tenant ID และชื่อฐานข้อมูล
-                    - เพิ่ม credentials ใน Streamlit secrets
+                    **🤖 ฟีเจอร์ AI:**
+                    - โมเดลภาษา Gemini Pro
+                    - MiniLM-L6-v2 embeddings สำหรับค้นหาความหมาย
+                    - ปรับระดับความคล้ายได้
+                    - ตั้งค่าพารามิเตอร์การตอบได้
                     
-                    **ประเภทไฟล์ที่รองรับ:**
-                    - 📄 ไฟล์ PDF
-                    - 📝 ไฟล์ข้อความ (.txt)
-                    - 📊 ไฟล์ CSV
-                    - 📈 ไฟล์ Excel (.xlsx, .xls)
+                    **⚙️ การตั้งค่าขั้นสูง:**
+                    - ควบคุมเกณฑ์ความคล้าย
+                    - ปรับความยาวการตอบ
+                    - ตั้งค่า temperature สำหรับความคิดสร้างสรรค์
+                    - โหมดดีบักสำหรับข้อมูลเชิงลึก
+                    
+                    **💾 Smart Caching:**
+                    - Cache vectors อัตโนมัติ
+                    - โหลดเร็วสำหรับเอกสารเดิม
+                    - ทำความสะอาดและจัดการ cache
+                    - เก็บข้อมูลถาวรข้ามเซสชั่น
+                    
+                    **📊 การวิเคราะห์:**
+                    - การวิเคราะห์ไฟล์และสถิติ
+                    - วัดประสิทธิภาพการค้นหา
+                    - ติดตามประวัติการค้นหา
+                    - แสดงข้อมูลดีบัก
                     """)
 
-            if not uploaded_files and st.session_state.chroma_connected:
+            if not uploaded_files:
                 st.info(t["no_documents"])
-            elif not st.session_state.chroma_connected:
-                st.warning("⚠️ Please check your ChromaDB Cloud credentials to start using the chatbot.")
 
         # Footer
         st.markdown(
-            '<div class="footer">Created by Arnutt Noitumyae, 2024 | ChromaDB Cloud + Gemini AI</div>',
+            '<div class="footer">Advanced RAG Chatbot v2.0 | Created by Arnutt Noitumyae, 2024</div>',
             unsafe_allow_html=True
         )
         
