@@ -289,22 +289,34 @@ def scan_local_files():
     ignore_patterns = load_gitignore_patterns()
     
     try:
+        # Debug: Show current directory
+        current_dir = os.getcwd()
+        print(f"DEBUG: Scanning directory: {current_dir}")
+        
         # Scan current directory and subdirectories
         for root, dirs, files in os.walk('.'):
             # Skip hidden directories and common ignore directories
             dirs[:] = [d for d in dirs if not d.startswith('.') and d not in ['__pycache__', 'node_modules', 'vector_cache']]
             
+            print(f"DEBUG: Checking directory: {root}")
+            print(f"DEBUG: Files in {root}: {files}")
+            
             for file in files:
                 if file.lower().endswith(supported_extensions):
                     filepath = os.path.join(root, file)
+                    print(f"DEBUG: Found supported file: {filepath}")
                     if not should_ignore_file(filepath, ignore_patterns):
                         local_files.append(filepath)
+                        print(f"DEBUG: Added file: {filepath}")
+                    else:
+                        print(f"DEBUG: Ignored file: {filepath}")
         
         # Remove duplicates and sort
         local_files = sorted(list(set(local_files)))
+        print(f"DEBUG: Final file list: {local_files}")
         
     except Exception as e:
-        pass
+        print(f"DEBUG: Error scanning local files: {e}")
     
     return local_files
 
@@ -673,21 +685,28 @@ def auto_load_local_files():
     st.session_state.auto_load_attempted = True
     
     # Scan for local files
+    print("DEBUG: Starting auto_load_local_files")
     local_files = scan_local_files()
     st.session_state.local_files = local_files
+    print(f"DEBUG: Found {len(local_files)} files")
     
     t = translations[st.session_state.language]
     
     if not local_files:
+        print("DEBUG: No local files found")
+        st.info("📁 No local files found in repository. Upload documents using the sidebar.")
         return  # Exit early if no files
     
     # Show initial file discovery message only once per app session
     if st.session_state.show_loading_messages:
         st.info(t["found_local_files"](len(local_files)))
+        print(f"DEBUG: Showing message for {len(local_files)} files")
     
     # Auto-process if we have local files - no spinner to avoid hanging
     try:
+        print("DEBUG: Starting document processing")
         success = process_all_documents(local_files, [], show_progress=st.session_state.show_loading_messages)
+        print(f"DEBUG: Document processing result: {success}")
         
         if success:
             # Update app state to indicate successful initialization
@@ -698,7 +717,12 @@ def auto_load_local_files():
             # Disable loading messages for subsequent users
             st.session_state.show_loading_messages = False
             st.session_state.initialization_complete = True
+            print("DEBUG: Auto-load completed successfully")
+        else:
+            print("DEBUG: Auto-load failed")
+            st.error("❌ Failed to process local files. Try reloading manually.")
     except Exception as e:
+        print(f"DEBUG: Error during auto-load: {e}")
         st.error(f"Error during auto-load: {e}")
         st.session_state.show_loading_messages = False
 
@@ -1150,13 +1174,18 @@ def main():
 
             # Reload local files button
             if st.button(t["reload_local"], use_container_width=True):
-                st.session_state.local_files = scan_local_files()
+                print("DEBUG: Manual reload triggered")
+                # Clear cache first
+                st.session_state.local_files = []
                 st.session_state.auto_load_attempted = False
                 st.session_state.documents_processed = False
                 st.session_state.vectorstore = None
                 st.session_state.show_loading_messages = True
+                st.session_state.initialization_complete = False
                 # Reset app state to allow messages to show again
                 save_app_state({"initialized": False, "last_load": 0})
+                # Force a fresh scan
+                scan_local_files.clear()  # Clear cache
                 st.rerun()
 
             # File uploader
@@ -1369,6 +1398,26 @@ def main():
         else:
             # Simple info without welcome card
             st.info("📄 No documents processed yet. System is loading or waiting for file upload.")
+            
+            # Show debug info about file scanning
+            if st.session_state.debug_mode:
+                st.write("**Debug Info:**")
+                st.write(f"- Auto load attempted: {st.session_state.auto_load_attempted}")
+                st.write(f"- Local files found: {len(st.session_state.local_files)}")
+                st.write(f"- Local files: {st.session_state.local_files}")
+                st.write(f"- Documents processed: {st.session_state.documents_processed}")
+                st.write(f"- Current directory: {os.getcwd()}")
+                
+                # Show files in current directory
+                try:
+                    all_files = []
+                    for root, dirs, files in os.walk('.'):
+                        if not root.startswith('.'):
+                            for file in files:
+                                all_files.append(os.path.join(root, file))
+                    st.write(f"- All files in repo: {all_files[:10]}")  # Show first 10
+                except Exception as e:
+                    st.write(f"- Error listing files: {e}")
             
             # Show loading progress
             if st.session_state.auto_load_attempted and not st.session_state.documents_processed:
