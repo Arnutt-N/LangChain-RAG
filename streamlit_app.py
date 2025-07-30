@@ -7,6 +7,7 @@ import hashlib
 import json
 from pathlib import Path
 from typing import Optional, List, Dict, Any
+import fnmatch
 
 # Load environment variables
 load_dotenv()
@@ -70,7 +71,6 @@ try:
     from langchain.schema import Document
     import pandas as pd
     import numpy as np
-    from sentence_transformers import SentenceTransformer
     
 except ImportError as e:
     st.error(f"Import error: {e}")
@@ -107,7 +107,7 @@ CACHE_DIR.mkdir(exist_ok=True)
 translations = {
     "en": {
         "title": "🤖 Advanced RAG Chatbot",
-        "upload_button": "Upload Documents",
+        "upload_button": "Upload Additional Documents",
         "ask_placeholder": "Ask a question in Thai or English...",
         "processing": "Processing documents...",
         "welcome": "👋 Hello! I'm ready to chat about various topics based on the documents.",
@@ -116,21 +116,25 @@ translations = {
         "language": "🌐 Language / ภาษา",
         "clear_chat": "🗑️ Clear Chat",
         "clear_cache": "🗑️ Clear Cache",
+        "reload_local": "🔄 Reload Local Files",
         "model_info": "🤖 **Model:** Gemini Pro | 📊 **Embedding:** MiniLM-L6-v2 | 🗃️ **Vector DB:** FAISS",
-        "no_documents": "📄 No documents uploaded yet. Please upload some documents to start chatting!",
+        "no_documents": "📄 No documents found. Please check the repository or upload files.",
         "error_processing": "❌ Error processing documents. Please try again.",
         "error_response": "🚨 Sorry, I encountered an error while generating response.",
         "checking_cache": "🔍 Checking cache...",
         "found_cached": "✅ Found cached vectors",
         "saving_cache": "💾 Saving to cache...",
+        "local_files": "📁 Local Repository Files",
+        "uploaded_files": "📤 Uploaded Files",
         "stats": "Statistics",
         "advanced_features": "Advanced Features",
-        "file_analysis": "File Analysis",
-        "search_similarity": "Search Similarity",
+        "auto_loaded": "✅ Auto-loaded from repository",
+        "processing_local": "📂 Processing repository files...",
+        "found_local_files": lambda count: f"📁 Found {count} local files in repository",
     },
     "th": {
         "title": "🤖 แชทบอท RAG ขั้นสูง",
-        "upload_button": "อัปโหลดเอกสาร",
+        "upload_button": "อัปโหลดเอกสารเพิ่มเติม",
         "ask_placeholder": "ถามคำถามเป็นภาษาไทยหรืออังกฤษ...",
         "processing": "กำลังประมวลผลเอกสาร...",
         "welcome": "👋 สวัสดี! ฉันพร้อมพูดคุยเกี่ยวกับเอกสารต่างๆ",
@@ -139,17 +143,21 @@ translations = {
         "language": "🌐 ภาษา / Language",
         "clear_chat": "🗑️ ล้างการแชท",
         "clear_cache": "🗑️ ล้าง Cache",
+        "reload_local": "🔄 โหลดไฟล์ local ใหม่",
         "model_info": "🤖 **โมเดล:** Gemini Pro | 📊 **Embedding:** MiniLM-L6-v2 | 🗃️ **Vector DB:** FAISS",
-        "no_documents": "📄 ยังไม่มีเอกสารอัปโหลด กรุณาอัปโหลดเอกสารเพื่อเริ่มแชท!",
+        "no_documents": "📄 ไม่พบเอกสาร กรุณาตรวจสอบ repository หรืออัปโหลดไฟล์",
         "error_processing": "❌ เกิดข้อผิดพลาดในการประมวลผลเอกสาร",
         "error_response": "🚨 ขออภัย เกิดข้อผิดพลาดในการสร้างคำตอบ",
         "checking_cache": "🔍 ตรวจสอบ cache...",
         "found_cached": "✅ พบ vectors ใน cache",
         "saving_cache": "💾 บันทึกลง cache...",
+        "local_files": "📁 ไฟล์ใน Repository",
+        "uploaded_files": "📤 ไฟล์ที่อัปโหลด",
         "stats": "สถิติ",
         "advanced_features": "ฟีเจอร์ขั้นสูง",
-        "file_analysis": "การวิเคราะห์ไฟล์",
-        "search_similarity": "ความคล้ายในการค้นหา",
+        "auto_loaded": "✅ โหลดอัตโนมัติจาก repository",
+        "processing_local": "📂 กำลังประมวลผลไฟล์ใน repository...",
+        "found_local_files": lambda count: f"📁 พบไฟล์ local {count} ไฟล์ใน repository",
     }
 }
 
@@ -160,6 +168,7 @@ def init_session_state():
         "vectorstore": None,
         "language": "en",
         "uploaded_files": [],
+        "local_files": [],
         "documents_processed": False,
         "document_chunks": 0,
         "debug_mode": False,
@@ -170,6 +179,7 @@ def init_session_state():
         "similarity_threshold": 0.7,
         "max_tokens": 512,
         "temperature": 0.1,
+        "auto_load_attempted": False,
     }
     
     for key, value in defaults.items():
@@ -177,6 +187,68 @@ def init_session_state():
             st.session_state[key] = value
 
 init_session_state()
+
+# Function to scan for local files
+def load_gitignore_patterns():
+    """Load .gitignore patterns to exclude files"""
+    patterns = []
+    try:
+        if os.path.exists('.gitignore'):
+            with open('.gitignore', 'r', encoding='utf-8') as f:
+                patterns = [line.strip() for line in f.readlines() 
+                           if line.strip() and not line.startswith('#')]
+    except:
+        pass
+    
+    # Default patterns to ignore
+    default_patterns = [
+        '.git/*', '*.pyc', '__pycache__/*', '.env', '*.log',
+        'node_modules/*', '.vscode/*', '.idea/*', '*.tmp',
+        'vector_cache/*', '.streamlit/*'
+    ]
+    
+    return patterns + default_patterns
+
+def should_ignore_file(filepath, patterns):
+    """Check if file should be ignored based on patterns"""
+    filename = os.path.basename(filepath)
+    
+    # Always ignore these
+    if filename.startswith('.') or filename == 'requirements.txt':
+        return True
+    
+    for pattern in patterns:
+        if fnmatch.fnmatch(filepath, pattern) or fnmatch.fnmatch(filename, pattern):
+            return True
+    
+    return False
+
+@st.cache_data
+def scan_local_files():
+    """Scan repository for document files"""
+    supported_extensions = ('.pdf', '.txt', '.csv', '.xlsx', '.xls', '.docx')
+    local_files = []
+    ignore_patterns = load_gitignore_patterns()
+    
+    try:
+        # Scan current directory and subdirectories
+        for root, dirs, files in os.walk('.'):
+            # Skip hidden directories and common ignore directories
+            dirs[:] = [d for d in dirs if not d.startswith('.') and d not in ['__pycache__', 'node_modules', 'vector_cache']]
+            
+            for file in files:
+                if file.lower().endswith(supported_extensions):
+                    filepath = os.path.join(root, file)
+                    if not should_ignore_file(filepath, ignore_patterns):
+                        local_files.append(filepath)
+        
+        # Remove duplicates and sort
+        local_files = sorted(list(set(local_files)))
+        
+    except Exception as e:
+        st.warning(f"Error scanning local files: {e}")
+    
+    return local_files
 
 # Optimized embeddings with latest HuggingFace integration
 @st.cache_resource
@@ -192,7 +264,6 @@ def get_embeddings():
         # Test embeddings
         test_embedding = embeddings.embed_query("test")
         if len(test_embedding) > 0:
-            st.success("✅ Embeddings model loaded successfully")
             return embeddings
         else:
             st.error("❌ Embeddings model failed to generate vectors")
@@ -203,14 +274,39 @@ def get_embeddings():
         return None
 
 # Enhanced caching system
-def get_file_hash(content: bytes) -> str:
-    """Generate hash from file content"""
+def get_file_hash(filepath_or_content) -> str:
+    """Generate hash from file path or content"""
+    if isinstance(filepath_or_content, (str, Path)) and os.path.exists(filepath_or_content):
+        # File path - read and hash
+        with open(filepath_or_content, 'rb') as f:
+            content = f.read()
+    else:
+        # Direct content
+        content = filepath_or_content
+        if isinstance(content, str):
+            content = content.encode('utf-8')
+    
     return hashlib.md5(content).hexdigest()
 
-def get_cache_key(file_hashes: Dict[str, str]) -> str:
-    """Generate cache key from file hashes"""
-    sorted_hashes = sorted(file_hashes.items())
-    cache_string = json.dumps(sorted_hashes, sort_keys=True)
+def get_cache_key(local_files: List[str], uploaded_files: List) -> str:
+    """Generate cache key from all files"""
+    file_hashes = {}
+    
+    # Hash local files
+    for filepath in local_files:
+        try:
+            file_hashes[f"local_{filepath}"] = get_file_hash(filepath)
+        except:
+            continue
+    
+    # Hash uploaded files
+    for uploaded_file in uploaded_files:
+        try:
+            file_hashes[f"upload_{uploaded_file.name}"] = get_file_hash(uploaded_file.getvalue())
+        except:
+            continue
+    
+    cache_string = json.dumps(sorted(file_hashes.items()), sort_keys=True)
     return hashlib.md5(cache_string.encode()).hexdigest()[:16]
 
 def save_vectors_to_cache(vectorstore: FAISS, cache_key: str, file_info: Dict):
@@ -274,39 +370,59 @@ def load_vectors_from_cache(cache_key: str):
         return None, None
 
 # Enhanced document processing
-def analyze_file(uploaded_file) -> Dict[str, Any]:
-    """Analyze uploaded file and return metadata"""
+def load_single_local_file(filepath: str) -> List[Document]:
+    """Load a single local file"""
     try:
-        file_size = len(uploaded_file.getvalue())
-        file_extension = uploaded_file.name.split('.')[-1].lower()
+        file_extension = Path(filepath).suffix.lower()
         
-        analysis = {
-            "name": uploaded_file.name,
-            "size": file_size,
-            "type": file_extension,
-            "size_mb": round(file_size / (1024 * 1024), 2),
-            "hash": get_file_hash(uploaded_file.getvalue())
-        }
-        
-        # Type-specific analysis
-        if file_extension == 'pdf':
-            analysis["estimated_pages"] = max(1, file_size // 50000)  # Rough estimate
-        elif file_extension == 'csv':
+        # Use appropriate loader based on file type
+        if file_extension == '.pdf':
+            loader = PyPDFLoader(filepath)
+        elif file_extension == '.csv':
+            loader = CSVLoader(filepath)
+        elif file_extension == '.txt':
+            loader = TextLoader(filepath, encoding='utf-8')
+        elif file_extension in ['.xlsx', '.xls']:
+            loader = UnstructuredExcelLoader(filepath)
+        elif file_extension == '.docx':
+            # Try to load docx if available
             try:
-                df = pd.read_csv(uploaded_file)
-                analysis["rows"] = len(df)
-                analysis["columns"] = len(df.columns)
-                uploaded_file.seek(0)  # Reset file pointer
+                from langchain_community.document_loaders import UnstructuredWordDocumentLoader
+                loader = UnstructuredWordDocumentLoader(filepath)
             except:
-                pass
+                st.warning(f"Cannot load .docx file: {filepath}")
+                return []
+        else:
+            st.warning(f"Unsupported file type: {file_extension}")
+            return []
         
-        return analysis
+        docs = loader.load()
+        cleaned_docs = []
+        
+        for i, doc in enumerate(docs):
+            if hasattr(doc, 'page_content') and doc.page_content.strip():
+                content = doc.page_content.replace('\n\n', '\n').strip()
+                if len(content) > 50:  # Only include meaningful content
+                    doc.page_content = content
+                    # Enhanced metadata
+                    doc.metadata.update({
+                        'source_file': os.path.basename(filepath),
+                        'file_path': filepath,
+                        'file_hash': get_file_hash(filepath),
+                        'file_type': 'local',
+                        'chunk_id': i,
+                        'content_length': len(content)
+                    })
+                    cleaned_docs.append(doc)
+        
+        return cleaned_docs
+        
     except Exception as e:
-        st.warning(f"Could not analyze file {uploaded_file.name}: {e}")
-        return {"name": uploaded_file.name, "error": str(e)}
+        st.warning(f"Error loading local file {filepath}: {e}")
+        return []
 
 def load_single_uploaded_file(uploaded_file) -> List[Document]:
-    """Load a single uploaded file with enhanced error handling"""
+    """Load a single uploaded file"""
     try:
         file_extension = uploaded_file.name.split('.')[-1].lower()
         
@@ -340,6 +456,7 @@ def load_single_uploaded_file(uploaded_file) -> List[Document]:
                         doc.metadata.update({
                             'source_file': uploaded_file.name,
                             'file_hash': get_file_hash(uploaded_file.getvalue()),
+                            'file_type': 'uploaded',
                             'upload_time': time.time(),
                             'file_size': len(uploaded_file.getvalue()),
                             'chunk_id': i,
@@ -359,26 +476,16 @@ def load_single_uploaded_file(uploaded_file) -> List[Document]:
         st.error(f"Error loading file {uploaded_file.name}: {e}")
         return []
 
-def process_documents_with_cache(uploaded_files: List) -> bool:
-    """Process documents with intelligent caching"""
+def process_all_documents(local_files: List[str], uploaded_files: List) -> bool:
+    """Process all documents with intelligent caching"""
     t = translations[st.session_state.language]
     
-    if not uploaded_files:
+    total_files = len(local_files) + len(uploaded_files)
+    if total_files == 0:
         return False
     
-    # Analyze files and generate cache key
-    file_info = {}
-    file_hashes = {}
-    
-    for uploaded_file in uploaded_files:
-        analysis = analyze_file(uploaded_file)
-        file_info[uploaded_file.name] = analysis
-        file_hashes[uploaded_file.name] = analysis.get("hash", "")
-    
-    cache_key = get_cache_key(file_hashes)
-    
-    # Store file analysis
-    st.session_state.file_analysis = file_info
+    # Generate cache key
+    cache_key = get_cache_key(local_files, uploaded_files)
     
     # Try to load from cache
     st.info(f"🔍 {t['checking_cache']}")
@@ -399,13 +506,26 @@ def process_documents_with_cache(uploaded_files: List) -> bool:
     status_text = st.empty()
     
     try:
-        # Load documents
-        for i, uploaded_file in enumerate(uploaded_files):
-            status_text.text(f"Loading {uploaded_file.name}...")
-            progress_bar.progress((i + 1) / len(uploaded_files) * 0.5)
+        total_files_to_process = len(local_files) + len(uploaded_files)
+        processed = 0
+        
+        # Process local files
+        for filepath in local_files:
+            status_text.text(f"Loading local: {os.path.basename(filepath)}...")
+            progress_bar.progress(processed / total_files_to_process * 0.5)
+            
+            docs = load_single_local_file(filepath)
+            all_documents.extend(docs)
+            processed += 1
+        
+        # Process uploaded files
+        for uploaded_file in uploaded_files:
+            status_text.text(f"Loading uploaded: {uploaded_file.name}...")
+            progress_bar.progress(processed / total_files_to_process * 0.5)
             
             docs = load_single_uploaded_file(uploaded_file)
             all_documents.extend(docs)
+            processed += 1
         
         if not all_documents:
             st.warning("No documents could be processed")
@@ -439,6 +559,12 @@ def process_documents_with_cache(uploaded_files: List) -> bool:
         
         # Save to cache
         status_text.text(f"💾 {t['saving_cache']}")
+        file_info = {
+            "local_files": local_files,
+            "uploaded_files": [f.name for f in uploaded_files],
+            "total_documents": len(all_documents),
+            "total_chunks": len(texts)
+        }
         save_vectors_to_cache(vectorstore, cache_key, file_info)
         
         # Update session state
@@ -460,7 +586,31 @@ def process_documents_with_cache(uploaded_files: List) -> bool:
         st.error(f"Error processing documents: {e}")
         return False
 
-# Enhanced query processing
+# Auto-load local files on startup
+def auto_load_local_files():
+    """Automatically load local files on startup"""
+    if st.session_state.auto_load_attempted:
+        return
+    
+    st.session_state.auto_load_attempted = True
+    
+    # Scan for local files
+    local_files = scan_local_files()
+    st.session_state.local_files = local_files
+    
+    t = translations[st.session_state.language]
+    
+    if local_files:
+        st.info(t["found_local_files"](len(local_files)))
+        
+        # Auto-process if we have local files
+        with st.spinner(t["processing_local"]):
+            success = process_all_documents(local_files, [])
+            if success:
+                st.success(f"✅ {t['auto_loaded']}")
+                st.success(f"📊 Processed {len(local_files)} local files into {st.session_state.document_chunks} chunks!")
+
+# Enhanced query processing (same as before)
 def setup_advanced_retrieval_chain():
     """Setup retrieval chain with advanced features"""
     try:
@@ -538,19 +688,32 @@ def query_with_analytics(chain, question: str) -> Dict[str, Any]:
             raise e
 
 # UI Helper functions
-def display_file_analysis():
-    """Display file analysis in sidebar"""
-    if st.session_state.file_analysis:
-        st.markdown("**📊 File Analysis**")
-        for filename, analysis in st.session_state.file_analysis.items():
-            with st.expander(f"📄 {filename}"):
-                st.write(f"Size: {analysis.get('size_mb', 0)} MB")
-                st.write(f"Type: {analysis.get('type', 'unknown')}")
-                if 'rows' in analysis:
-                    st.write(f"Rows: {analysis['rows']}")
-                    st.write(f"Columns: {analysis['columns']}")
-                if 'estimated_pages' in analysis:
-                    st.write(f"Est. Pages: {analysis['estimated_pages']}")
+def display_file_lists():
+    """Display local and uploaded file lists"""
+    t = translations[st.session_state.language]
+    
+    # Local files
+    if st.session_state.local_files:
+        st.markdown(f"**📁 {t['local_files']} ({len(st.session_state.local_files)})**")
+        for filepath in st.session_state.local_files[:5]:  # Show first 5
+            filename = os.path.basename(filepath)
+            file_size = ""
+            try:
+                size_kb = os.path.getsize(filepath) / 1024
+                file_size = f" ({size_kb:.1f}KB)"
+            except:
+                pass
+            st.text(f"📄 {filename}{file_size}")
+        
+        if len(st.session_state.local_files) > 5:
+            st.text(f"... and {len(st.session_state.local_files) - 5} more files")
+    
+    # Uploaded files
+    if st.session_state.uploaded_files:
+        st.markdown(f"**📤 {t['uploaded_files']} ({len(st.session_state.uploaded_files)})**")
+        for uploaded_file in st.session_state.uploaded_files:
+            file_size = len(uploaded_file.getvalue()) / 1024
+            st.text(f"📄 {uploaded_file.name} ({file_size:.1f}KB)")
 
 def display_advanced_settings():
     """Display advanced settings"""
@@ -651,6 +814,9 @@ def main():
             </style>
         """, unsafe_allow_html=True)
 
+        # Auto-load local files on first run
+        auto_load_local_files()
+
         # Sidebar
         with st.sidebar:
             # Language selection
@@ -671,20 +837,28 @@ def main():
             # Debug mode
             st.session_state.debug_mode = st.checkbox("🔍 Debug Mode")
 
+            # Reload local files button
+            if st.button(t["reload_local"], use_container_width=True):
+                st.session_state.local_files = scan_local_files()
+                st.session_state.auto_load_attempted = False
+                st.session_state.documents_processed = False
+                st.session_state.vectorstore = None
+                st.rerun()
+
             # File uploader
             st.markdown(f"**{t['upload_button']}**")
             uploaded_files = st.file_uploader(
-                "Upload Documents",
+                "Upload Additional Documents",
                 accept_multiple_files=True,
                 type=['pdf', 'csv', 'txt', 'xlsx', 'xls'],
                 label_visibility="collapsed"
             )
 
-            # Process files
+            # Process additional uploaded files
             if uploaded_files and uploaded_files != st.session_state.uploaded_files:
                 st.session_state.uploaded_files = uploaded_files
                 with st.spinner(t["processing"]):
-                    success = process_documents_with_cache(uploaded_files)
+                    success = process_all_documents(st.session_state.local_files, uploaded_files)
                     if success:
                         st.success(t["upload_success"](len(uploaded_files)))
                     else:
@@ -692,8 +866,8 @@ def main():
 
             st.markdown("---")
 
-            # File analysis
-            display_file_analysis()
+            # Display file lists
+            display_file_lists()
 
             # Advanced settings
             display_advanced_settings()
@@ -701,7 +875,8 @@ def main():
             # Statistics
             if st.session_state.debug_mode and st.session_state.documents_processed:
                 st.markdown(f"**📊 {t['stats']}**")
-                st.write(f"📄 Documents: {len(st.session_state.uploaded_files)}")
+                st.write(f"📁 Local files: {len(st.session_state.local_files)}")
+                st.write(f"📤 Uploaded: {len(st.session_state.uploaded_files)}")
                 st.write(f"🔢 Chunks: {st.session_state.document_chunks}")
                 st.write(f"🔍 Searches: {len(st.session_state.search_history)}")
                 
@@ -724,7 +899,7 @@ def main():
                             CACHE_DIR.mkdir(exist_ok=True)
                         st.session_state.vectorstore = None
                         st.session_state.documents_processed = False
-                        st.session_state.uploaded_files = []
+                        st.session_state.auto_load_attempted = False
                         st.success("✅ Cache cleared!")
                     except Exception as e:
                         st.error(f"Error clearing cache: {e}")
@@ -769,7 +944,8 @@ def main():
                                             
                                             if hasattr(doc, 'metadata') and doc.metadata:
                                                 meta = doc.metadata
-                                                st.caption(f"📄 File: {meta.get('source_file', 'Unknown')}")
+                                                source_type = "📁 Local" if meta.get('file_type') == 'local' else "📤 Uploaded"
+                                                st.caption(f"{source_type}: {meta.get('source_file', 'Unknown')}")
                                                 if st.session_state.debug_mode:
                                                     st.caption(f"🔢 Chunk: {meta.get('chunk_id', 'N/A')} | Length: {meta.get('content_length', 'N/A')}")
                                             st.markdown("---")
@@ -795,13 +971,17 @@ def main():
             with st.expander("ℹ️ How to use / วิธีใช้งาน", expanded=True):
                 if st.session_state.language == "en":
                     st.markdown("""
-                    **🚀 Advanced RAG Chatbot Features:**
+                    **🚀 Advanced RAG Chatbot with Auto-Load:**
                     
-                    **📁 Document Processing:**
-                    - Upload multiple files (PDF, TXT, CSV, XLSX)
-                    - Intelligent caching for faster reloading
-                    - File analysis and metadata extraction
-                    - Duplicate detection and handling
+                    **📁 Auto-Detection:**
+                    - Automatically scans repository for PDF, TXT, CSV, XLSX files
+                    - Respects .gitignore patterns
+                    - Loads documents on startup
+                    
+                    **📤 Additional Upload:**
+                    - Upload more documents using the sidebar
+                    - Combines with auto-detected files
+                    - Smart caching for fast reloads
                     
                     **🤖 AI Features:**
                     - Gemini Pro language model
@@ -809,33 +989,32 @@ def main():
                     - Adjustable similarity threshold
                     - Configurable response parameters
                     
-                    **⚙️ Advanced Settings:**
-                    - Similarity threshold control
-                    - Response length adjustment
-                    - Temperature settings for creativity
-                    - Debug mode for detailed analytics
-                    
                     **💾 Smart Caching:**
                     - Automatic vector caching
                     - Fast reload for same documents
                     - Cache cleanup and management
                     - Persistent storage across sessions
                     
-                    **📊 Analytics:**
-                    - File analysis and statistics
-                    - Query performance metrics
-                    - Search history tracking
-                    - Debug information display
+                    **📊 File Types Supported:**
+                    - 📄 PDF files
+                    - 📝 Text files (.txt)
+                    - 📊 CSV files
+                    - 📈 Excel files (.xlsx, .xls)
+                    - 📄 Word documents (.docx)
                     """)
                 else:
                     st.markdown("""
-                    **🚀 ฟีเจอร์ Advanced RAG Chatbot:**
+                    **🚀 Advanced RAG Chatbot พร้อม Auto-Load:**
                     
-                    **📁 การประมวลผลเอกสาร:**
-                    - อัปโหลดหลายไฟล์ (PDF, TXT, CSV, XLSX)
-                    - Caching อัจฉริยะสำหรับโหลดเร็วขึ้น
-                    - การวิเคราะห์ไฟล์และ metadata
-                    - ตรวจจับและจัดการไฟล์ซ้ำ
+                    **📁 การตรวจจับอัตโนมัติ:**
+                    - สแกนหาไฟล์ PDF, TXT, CSV, XLSX ใน repository อัตโนมัติ
+                    - เคารพรูปแบบ .gitignore
+                    - โหลดเอกสารตอนเริ่มต้น
+                    
+                    **📤 อัปโหลดเพิ่มเติม:**
+                    - อัปโหลดเอกสารเพิ่มผ่านแถบด้านข้าง
+                    - รวมกับไฟล์ที่ตรวจจับอัตโนมัติ
+                    - Smart caching สำหรับโหลดเร็ว
                     
                     **🤖 ฟีเจอร์ AI:**
                     - โมเดลภาษา Gemini Pro
@@ -843,31 +1022,29 @@ def main():
                     - ปรับระดับความคล้ายได้
                     - ตั้งค่าพารามิเตอร์การตอบได้
                     
-                    **⚙️ การตั้งค่าขั้นสูง:**
-                    - ควบคุมเกณฑ์ความคล้าย
-                    - ปรับความยาวการตอบ
-                    - ตั้งค่า temperature สำหรับความคิดสร้างสรรค์
-                    - โหมดดีบักสำหรับข้อมูลเชิงลึก
-                    
                     **💾 Smart Caching:**
                     - Cache vectors อัตโนมัติ
                     - โหลดเร็วสำหรับเอกสารเดิม
                     - ทำความสะอาดและจัดการ cache
                     - เก็บข้อมูลถาวรข้ามเซสชั่น
                     
-                    **📊 การวิเคราะห์:**
-                    - การวิเคราะห์ไฟล์และสถิติ
-                    - วัดประสิทธิภาพการค้นหา
-                    - ติดตามประวัติการค้นหา
-                    - แสดงข้อมูลดีบัก
+                    **📊 ประเภทไฟล์ที่รองรับ:**
+                    - 📄 ไฟล์ PDF
+                    - 📝 ไฟล์ข้อความ (.txt)
+                    - 📊 ไฟล์ CSV
+                    - 📈 ไฟล์ Excel (.xlsx, .xls)
+                    - 📄 เอกสาร Word (.docx)
                     """)
 
-            if not uploaded_files:
+            total_files = len(st.session_state.local_files) + len(st.session_state.uploaded_files)
+            if total_files == 0:
                 st.info(t["no_documents"])
+            else:
+                st.info(f"📁 Found {len(st.session_state.local_files)} local files. Click 'Reload Local Files' if files were added recently.")
 
         # Footer
         st.markdown(
-            '<div class="footer">Advanced RAG Chatbot v2.0 | Created by Arnutt Noitumyae, 2024</div>',
+            '<div class="footer">Advanced RAG Chatbot v2.0 with Auto-Load | Created by Arnutt Noitumyae, 2024</div>',
             unsafe_allow_html=True
         )
         
