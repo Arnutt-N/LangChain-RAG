@@ -1,5 +1,4 @@
-# ===== MEMORY-OPTIMIZED VERSION สำหรับ Streamlit Cloud =====
-# ใช้เฉพาะ dependencies ที่จำเป็นที่สุด
+# ===== FIXED Requirements.txt สำหรับ Streamlit Cloud =====
 
 # Core Streamlit & Base
 streamlit==1.37.0
@@ -9,20 +8,22 @@ python-dotenv==1.0.1
 google-generativeai==0.8.3
 langchain-google-genai==1.0.10
 
-# LangChain Core (เท่าที่จำเป็น)
+# LangChain Core
 langchain==0.2.11
 langchain-community==0.2.10
 langchain-core==0.2.24
 langchain-text-splitters==0.2.2
 
-# HuggingFace Embeddings (เลือกใช้ CPU version)
+# HuggingFace Embeddings (แก้ไข torch version)
 sentence-transformers==3.0.1
 transformers==4.44.2
-torch==2.4.1+cpu --find-links https://download.pytorch.org/whl/torch_stable.html
+torch==2.4.1
+accelerate==0.34.2
 huggingface-hub==0.25.0
 
-# ChromaDB (lightweight version)
+# ChromaDB
 chromadb==0.5.5
+hnswlib==0.8.0
 
 # Document Processing
 pypdf==4.3.1
@@ -30,30 +31,12 @@ unstructured==0.15.0
 openpyxl==3.1.5
 pandas==2.2.2
 
-# Thai Language (เฉพาะที่จำเป็น)
-pythainlp==5.0.4
+# Thai Language (optional - ลบออกหากมี memory issues)
+# pythainlp==5.0.4
 
 # Essential Utils
 numpy==1.26.4
 requests==2.32.3
 pydantic==2.8.2
 tqdm==4.66.4
-
-# ===== ULTRA-LIGHT VERSION (หากยังมีปัญหา memory) =====
-# ใช้แทน sentence-transformers หากต้องการประหยัด memory มากที่สุด
-
-# แทน sentence-transformers ด้วย:
-# scikit-learn==1.5.1  # สำหรับ TF-IDF fallback
-# gensim==4.3.2        # สำหรับ Word2Vec/FastText fallback
-
-# ===== Dockerfile สำหรับ optimize memory =====
-# หากต้องการ custom deployment
-# FROM python:3.9-slim
-# RUN apt-get update && apt-get install -y \
-#     gcc g++ \
-#     && rm -rf /var/lib/apt/lists/*
-# COPY requirements.txt .
-# RUN pip install --no-cache-dir -r requirements.txt
-# COPY . .
-# EXPOSE 8501
-# CMD ["streamlit", "run", "app.py"]
+tenacity==8.5.0
