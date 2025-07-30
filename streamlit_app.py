@@ -127,7 +127,7 @@ def save_app_state(state):
 # Translations
 translations = {
     "en": {
-        "title": "🤖 Advanced RAG Chatbot",
+        "title": "🤖 Gen AI : RAG Chatbot with Documents (Demo)",
         "upload_button": "Upload Additional Documents",
         "ask_placeholder": "Ask a question in Thai or English...",
         "processing": "Processing documents...",
@@ -156,7 +156,7 @@ translations = {
         "loading_complete": "Loading complete",
     },
     "th": {
-        "title": "🤖 แชทบอท RAG ขั้นสูง",
+        "title": "🤖 Gen AI : RAG Chatbot with Documents (Demo)",
         "upload_button": "อัปโหลดเอกสารเพิ่มเติม",
         "ask_placeholder": "ถามคำถามเป็นภาษาไทยหรืออังกฤษ...",
         "processing": "กำลังประมวลผลเอกสาร...",
@@ -1258,13 +1258,13 @@ def main():
                 st.info(f"📁 Found {len(st.session_state.local_files)} local files. Ready to chat!")
 
         # Footer with mobile-responsive text
-        footer_text = "🤖 Advanced RAG Chatbot v2.1 | Enhanced UX/UI"
-        if st.query_params.get("mobile", "false") == "true":
-            footer_text = "🤖 RAG Chatbot v2.1"
+        # footer_text = "🤖 Gen AI : RAG Chatbot with Documents (Demo) | Enhanced UX/UI"
+        # if st.query_params.get("mobile", "false") == "true":
+        #     footer_text = "🤖 Gen AI : RAG Chatbot with Documents (Demo)"
         
-        st.markdown(
-            f'<div class="footer">{footer_text}<br><small>Created by Arnutt Noitumyae, 2024</small></div>',
-            unsafe_allow_html=True
+        # st.markdown(
+        #     f'<div class="footer">{footer_text}<br><small>Created by Arnutt Noitumyae, 2024</small></div>',
+        #     unsafe_allow_html=True
         )
         
     except Exception as e:
