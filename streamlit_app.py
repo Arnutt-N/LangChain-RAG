@@ -3,11 +3,21 @@ import os
 import fnmatch
 import io
 from dotenv import load_dotenv
-from langchain.embeddings import HuggingFaceEmbeddings
+
+# Fixed imports - ใช้ community imports
+from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.memory import ConversationBufferMemory
 from langchain.chains import ConversationalRetrievalChain
-from langchain.document_loaders import PyPDFLoader, CSVLoader, TextLoader, UnstructuredExcelLoader
+
+# Document loaders - ใช้ community imports
+from langchain_community.document_loaders import (
+    PyPDFLoader, 
+    CSVLoader, 
+    TextLoader, 
+    UnstructuredExcelLoader
+)
+
 from langchain.text_splitter import CharacterTextSplitter
 from langchain_community.vectorstores import Chroma
 import tempfile
