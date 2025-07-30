@@ -3,27 +3,29 @@ import os
 import fnmatch
 import io
 from dotenv import load_dotenv
-from langchain.embeddings import OpenAIEmbeddings
-from langchain.chat_models import ChatOpenAI
+from langchain.embeddings import HuggingFaceEmbeddings
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.memory import ConversationBufferMemory
 from langchain.chains import ConversationalRetrievalChain
 from langchain.document_loaders import PyPDFLoader, CSVLoader, TextLoader, UnstructuredExcelLoader
 from langchain.text_splitter import CharacterTextSplitter
-from langchain.vectorstores import FAISS
+from langchain_community.vectorstores import Chroma
 import tempfile
+import chromadb
+from chromadb.config import Settings
 
 # Set page configuration
 st.set_page_config(layout="wide", page_title="Gen AI : RAG Chatbot with Documents")
 
 # Retrieve the API key from Streamlit secrets
-api_key = st.secrets.get("OPENAI_API_KEY")
+api_key = st.secrets.get("GOOGLE_API_KEY") or st.secrets.get("GEMINI_API_KEY")
 
 # Ensure the script stops execution if the API key is not set
-if not api_key:
-    st.error("OPENAI_API_KEY is not set. Please set it in the Streamlit Cloud secrets.")
+if api_key is None:
+    st.error("GOOGLE_API_KEY or GEMINI_API_KEY is not set. Please set it in the Streamlit Cloud secrets.")
     st.stop()
 else:
-    os.environ["OPENAI_API_KEY"] = api_key
+    os.environ["GOOGLE_API_KEY"] = api_key
 
 # Translations
 translations = {
@@ -66,6 +68,8 @@ if "language" not in st.session_state:
     st.session_state.language = "en"
 if "uploaded_files" not in st.session_state:
     st.session_state.uploaded_files = []
+if "chroma_client" not in st.session_state:
+    st.session_state.chroma_client = None
 
 # Function to load .gitignore patterns
 def load_gitignore():
@@ -90,46 +94,100 @@ def should_ignore(filename, patterns):
             return True
     return False
 
+# Initialize BGE-M3 embeddings
+@st.cache_resource
+def get_embeddings():
+    """Initialize and cache BGE-M3 embeddings"""
+    model_name = "BAAI/bge-m3"
+    model_kwargs = {'device': 'cpu'}
+    encode_kwargs = {'normalize_embeddings': True}
+    
+    embeddings = HuggingFaceEmbeddings(
+        model_name=model_name,
+        model_kwargs=model_kwargs,
+        encode_kwargs=encode_kwargs
+    )
+    return embeddings
+
+# Initialize ChromaDB client
+@st.cache_resource
+def get_chroma_client():
+    """Initialize and cache ChromaDB client"""
+    # Create a persistent ChromaDB client
+    client = chromadb.PersistentClient(
+        path="./chroma_db",
+        settings=Settings(
+            anonymized_telemetry=False,
+            allow_reset=True
+        )
+    )
+    return client
+
 # Load documents
 def load_documents(file_paths, uploaded_files):
     documents = []
     for file_path in file_paths:
         if file_path == 'requirements.txt':
             continue
-        if file_path.endswith('.pdf'):
-            loader = PyPDFLoader(file_path)
-        elif file_path.endswith('.csv'):
-            loader = CSVLoader(file_path)
-        elif file_path.endswith('.txt'):
-            loader = TextLoader(file_path)
-        elif file_path.endswith(('.xlsx', '.xls')):
-            loader = UnstructuredExcelLoader(file_path)
-        else:
+        try:
+            if file_path.endswith('.pdf'):
+                loader = PyPDFLoader(file_path)
+            elif file_path.endswith('.csv'):
+                loader = CSVLoader(file_path)
+            elif file_path.endswith('.txt'):
+                loader = TextLoader(file_path)
+            elif file_path.endswith(('.xlsx', '.xls')):
+                loader = UnstructuredExcelLoader(file_path)
+            else:
+                continue
+            documents.extend(loader.load())
+        except Exception as e:
+            st.warning(f"Could not load file {file_path}: {str(e)}")
             continue
-        documents.extend(loader.load())
     
     for uploaded_file in uploaded_files:
-        if uploaded_file.name.endswith('.pdf'):
-            # Create a temporary file to save the uploaded PDF
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
-                temp_file.write(uploaded_file.getvalue())
-                temp_file_path = temp_file.name
+        try:
+            if uploaded_file.name.endswith('.pdf'):
+                # Create a temporary file to save the uploaded PDF
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
+                    temp_file.write(uploaded_file.getvalue())
+                    temp_file_path = temp_file.name
 
-            # Use PyPDFLoader with the temporary file path
-            loader = PyPDFLoader(temp_file_path)
-            documents.extend(loader.load())
+                # Use PyPDFLoader with the temporary file path
+                loader = PyPDFLoader(temp_file_path)
+                documents.extend(loader.load())
 
-            # Remove the temporary file
-            os.unlink(temp_file_path)
-        elif uploaded_file.name.endswith('.csv'):
-            loader = CSVLoader(io.StringIO(uploaded_file.getvalue().decode()))
-            documents.extend(loader.load())
-        elif uploaded_file.name.endswith('.txt'):
-            loader = TextLoader(io.StringIO(uploaded_file.getvalue().decode()))
-            documents.extend(loader.load())
-        elif uploaded_file.name.endswith(('.xlsx', '.xls')):
-            loader = UnstructuredExcelLoader(io.BytesIO(uploaded_file.getvalue()))
-            documents.extend(loader.load())
+                # Remove the temporary file
+                os.unlink(temp_file_path)
+            elif uploaded_file.name.endswith('.csv'):
+                content = uploaded_file.getvalue().decode('utf-8')
+                with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix=".csv", encoding='utf-8') as temp_file:
+                    temp_file.write(content)
+                    temp_file_path = temp_file.name
+                
+                loader = CSVLoader(temp_file_path)
+                documents.extend(loader.load())
+                os.unlink(temp_file_path)
+            elif uploaded_file.name.endswith('.txt'):
+                content = uploaded_file.getvalue().decode('utf-8')
+                with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix=".txt", encoding='utf-8') as temp_file:
+                    temp_file.write(content)
+                    temp_file_path = temp_file.name
+                
+                loader = TextLoader(temp_file_path)
+                documents.extend(loader.load())
+                os.unlink(temp_file_path)
+            elif uploaded_file.name.endswith(('.xlsx', '.xls')):
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as temp_file:
+                    temp_file.write(uploaded_file.getvalue())
+                    temp_file_path = temp_file.name
+                
+                loader = UnstructuredExcelLoader(temp_file_path)
+                documents.extend(loader.load())
+                os.unlink(temp_file_path)
+        except Exception as e:
+            st.warning(f"Could not load uploaded file {uploaded_file.name}: {str(e)}")
+            continue
     
     return documents
 
@@ -137,44 +195,98 @@ def load_documents(file_paths, uploaded_files):
 def process_documents(documents):
     if not documents:
         return None
-    text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=0)
-    texts = text_splitter.split_documents(documents)
-    embeddings = OpenAIEmbeddings()
-    vectorstore = FAISS.from_documents(texts, embeddings)
-    return vectorstore
+
+    try:
+        # Split documents into chunks
+        text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+        texts = text_splitter.split_documents(documents)
+        
+        # Get embeddings
+        embeddings = get_embeddings()
+        
+        # Get ChromaDB client
+        chroma_client = get_chroma_client()
+        
+        # Create collection name
+        collection_name = "rag_documents"
+        
+        # Delete existing collection if it exists
+        try:
+            chroma_client.delete_collection(name=collection_name)
+        except:
+            pass
+        
+        # Create vector store with ChromaDB
+        vectorstore = Chroma.from_documents(
+            documents=texts,
+            embedding=embeddings,
+            client=chroma_client,
+            collection_name=collection_name,
+            persist_directory="./chroma_db"
+        )
+        
+        return vectorstore
+    except Exception as e:
+        st.error(f"Error processing documents: {str(e)}")
+        return None
 
 # Setup retrieval chain
 def setup_retrieval_chain(vectorstore):
-    retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 3})
-    memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
-    
-    # Specify the model name here
-    llm = ChatOpenAI(model_name="gpt-4o-mini", temperature=0)
-    
-    qa_chain = ConversationalRetrievalChain.from_llm(llm, retriever, memory=memory)
-    return qa_chain
+    try:
+        retriever = vectorstore.as_retriever(
+            search_type="similarity", 
+            search_kwargs={"k": 3}
+        )
+        
+        memory = ConversationBufferMemory(
+            memory_key="chat_history", 
+            return_messages=True
+        )
+        
+        # Initialize Gemini 2.5 Flash model
+        llm = ChatGoogleGenerativeAI(
+            model="gemini-2.5-flash",
+            temperature=0.1,
+            google_api_key=api_key
+        )
+        
+        qa_chain = ConversationalRetrievalChain.from_llm(
+            llm=llm, 
+            retriever=retriever, 
+            memory=memory,
+            return_source_documents=True
+        )
+        
+        return qa_chain
+    except Exception as e:
+        st.error(f"Error setting up retrieval chain: {str(e)}")
+        return None
 
 # Function to clear all uploaded files and reset vectorstore
 def clear_uploaded_files():
     st.session_state.uploaded_files = []
     st.session_state.vectorstore = None
+    # Clear ChromaDB collection
+    try:
+        chroma_client = get_chroma_client()
+        chroma_client.delete_collection(name="rag_documents")
+    except:
+        pass
 
 # Function to refresh local files
 def refresh_local_files():
     ignore_patterns = load_gitignore()
-    st.session_state.local_files = [f for f in os.listdir('.') if f.endswith(('.pdf', '.csv', '.txt', '.xlsx', '.xls')) and not should_ignore(f, ignore_patterns) and f != 'requirements.txt']
-
-# Function to update query parameters using st.query_params
-def update_query_params(language):
-    st.session_state.language = language
-    st.query_params["language"] = language
-
+    st.session_state.local_files = [
+        f for f in os.listdir('.') 
+        if f.endswith(('.pdf', '.csv', '.txt', '.xlsx', '.xls')) 
+        and not should_ignore(f, ignore_patterns) 
+        and f != 'requirements.txt'
+    ]
 
 def main():
-    # Ensure query params are checked and set correctly
     if "language" in st.query_params:
         st.session_state.language = st.query_params["language"]
-    
+
     t = translations[st.session_state.language]
 
     # Custom CSS
@@ -230,6 +342,7 @@ def main():
 
     # Sidebar
     with st.sidebar:
+        # Language selection moved to the top
         st.markdown(f"<div class='sidebar-label'>{t['language']}</div>", unsafe_allow_html=True)
         selected_lang = st.selectbox(
             "", 
@@ -238,10 +351,14 @@ def main():
             key="language_selection",
             label_visibility="collapsed"
         )
-        new_language = "th" if selected_lang == "ไทย" else "en"
+        if selected_lang == "ไทย":
+            new_language = "th"
+        else:
+            new_language = "en"
         
         if new_language != st.session_state.language:
-            update_query_params(new_language)
+            st.session_state.language = new_language
+            st.query_params["language"] = new_language
             st.rerun()
         
         # Spacer between language selection and file uploader
@@ -260,19 +377,6 @@ def main():
             help=t["upload_button"]
         )
 
-        # Custom "Browse files" button with correct translation
-        st.markdown(
-            f"""
-            <script>
-                var uploadButton = window.parent.document.querySelector('.stFileUploader label.st-eb');
-                if (uploadButton) {{
-                    uploadButton.textContent = "{t['browse_files']}";
-                }}
-            </script>
-            """,
-            unsafe_allow_html=True
-        )
-
         if uploaded_files:
             st.session_state.uploaded_files = uploaded_files
             st.success(t["upload_success"](len(uploaded_files)))
@@ -281,6 +385,9 @@ def main():
     # Main content
     st.title(t["title"])
 
+    # Display model information
+    st.info("🤖 **Model:** Gemini 2.5 Flash | 📊 **Embedding:** BGE-M3 | 🗃️ **Vector DB:** ChromaDB")
+
     # Display local knowledge base
     refresh_local_files()  # Always refresh local files when rendering the main content
     if st.session_state.local_files:
@@ -288,47 +395,59 @@ def main():
         for file in st.session_state.local_files:
             st.write(f"- {file}")
 
-    # Ensure chat interface is always shown
-    if st.session_state.vectorstore is None and (st.session_state.local_files or st.session_state.uploaded_files):
-        documents = load_documents(st.session_state.local_files, st.session_state.uploaded_files)
-        st.session_state.vectorstore = process_documents(documents)
-
-    chat_interface_visible = True
-    if not st.session_state.vectorstore and not (st.session_state.local_files or st.session_state.uploaded_files):
-        st.write(t["welcome"])
-        chat_interface_visible = False
-
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
-
-    prompt = st.chat_input(t["ask_placeholder"])
-    if prompt:
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
-
-        with st.chat_message("assistant"):
-            if st.session_state.vectorstore:
-                retrieval_chain = setup_retrieval_chain(st.session_state.vectorstore)
-                with st.spinner(t["thinking"]):
-                    response = retrieval_chain({"question": prompt})
-                st.markdown(response['answer'])
-                st.session_state.messages.append({"role": "assistant", "content": response['answer']})
+    # Chat interface
+    if st.session_state.vectorstore is None:
+        with st.spinner(t["processing"]):
+            documents = load_documents(st.session_state.local_files, st.session_state.uploaded_files)
+            if documents:
+                st.session_state.vectorstore = process_documents(documents)
             else:
-                st.markdown("No documents to process. Please upload documents first.")
+                st.session_state.vectorstore = None
+
+    if st.session_state.vectorstore:
+        for message in st.session_state.messages:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
+
+        if prompt := st.chat_input(t["ask_placeholder"]):
+            st.session_state.messages.append({"role": "user", "content": prompt})
+            with st.chat_message("user"):
+                st.markdown(prompt)
+
+            with st.chat_message("assistant"):
+                retrieval_chain = setup_retrieval_chain(st.session_state.vectorstore)
+                if retrieval_chain:
+                    with st.spinner(t["thinking"]):
+                        try:
+                            response = retrieval_chain({"question": prompt})
+                            answer = response['answer']
+                            st.markdown(answer)
+                            st.session_state.messages.append({"role": "assistant", "content": answer})
+                        except Exception as e:
+                            error_msg = f"Sorry, I encountered an error: {str(e)}"
+                            st.error(error_msg)
+                            st.session_state.messages.append({"role": "assistant", "content": error_msg})
+                else:
+                    error_msg = "Sorry, I couldn't set up the retrieval system."
+                    st.error(error_msg)
+                    st.session_state.messages.append({"role": "assistant", "content": error_msg})
+
+    else:
+        st.write(t["welcome"])
 
     # Clear chat button
     if st.button(t["clear_chat"]):
         st.session_state.messages = []
+        clear_uploaded_files()
         st.rerun()
 
     # Footer
     st.markdown(
-        '<div class="footer">Created by Arnutt Noitumyae, 2024</div>',
+        '<div class="footer">Created by Arnutt Noitumyae, 2024 | Updated with Gemini & ChromaDB</div>',
         unsafe_allow_html=True
     )
 
-
 if __name__ == "__main__":
+    if "language" in st.query_params:
+        st.session_state.language = st.query_params["language"]
     main()
