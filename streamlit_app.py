@@ -127,7 +127,7 @@ def save_app_state(state):
 # Translations
 translations = {
     "en": {
-        "title": "🤖 Advanced RAG Chatbot",
+        "title": "🤖 Gen AI : RAG Chatbot with Documents (Demo)",
         "upload_button": "Upload Additional Documents",
         "ask_placeholder": "Ask a question in Thai or English...",
         "processing": "Processing documents...",
@@ -138,7 +138,7 @@ translations = {
         "clear_chat": "🗑️ Clear Chat",
         "clear_cache": "🗑️ Clear Cache",
         "reload_local": "🔄 Reload Local Files",
-        "model_info": "🤖 **Model:** Gemini Pro | 📊 **Embedding:** MiniLM-L6-v2 | 🗃️ **Vector DB:** FAISS",
+        "model_info": '<span class="emoji">🤖</span><span class="bold-text">Model:</span> Gemini Pro | <span class="emoji">📊</span><span class="bold-text">Embedding:</span> MiniLM-L6-v2 | <span class="emoji">🗃️</span><span class="bold-text">Vector DB:</span> FAISS',
         "no_documents": "📄 No documents found. Please check the repository or upload files.",
         "error_processing": "❌ Error processing documents. Please try again.",
         "error_response": "🚨 Sorry, I encountered an error while generating response.",
@@ -156,7 +156,7 @@ translations = {
         "loading_complete": "Loading complete",
     },
     "th": {
-        "title": "🤖 แชทบอท RAG ขั้นสูง",
+        "title": "🤖 Gen AI : RAG Chatbot with Documents (Demo)",
         "upload_button": "อัปโหลดเอกสารเพิ่มเติม",
         "ask_placeholder": "ถามคำถามเป็นภาษาไทยหรืออังกฤษ...",
         "processing": "กำลังประมวลผลเอกสาร...",
@@ -167,7 +167,7 @@ translations = {
         "clear_chat": "🗑️ ล้างการแชท",
         "clear_cache": "🗑️ ล้าง Cache",
         "reload_local": "🔄 โหลดไฟล์ local ใหม่",
-        "model_info": "🤖 **โมเดล:** Gemini Pro | 📊 **Embedding:** MiniLM-L6-v2 | 🗃️ **Vector DB:** FAISS",
+        "model_info": '<span class="emoji">🤖</span><span class="bold-text">โมเดล:</span> Gemini Pro | <span class="emoji">📊</span><span class="bold-text">Embedding:</span> MiniLM-L6-v2 | <span class="emoji">🗃️</span><span class="bold-text">Vector DB:</span> FAISS',
         "no_documents": "📄 ไม่พบเอกสาร กรุณาตรวจสอบ repository หรืออัปโหลดไฟล์",
         "error_processing": "❌ เกิดข้อผิดพลาดในการประมวลผลเอกสาร",
         "error_response": "🚨 ขออภัย เกิดข้อผิดพลาดในการสร้างคำตอบ",
@@ -854,10 +854,19 @@ def main():
                 margin-bottom: 1.5rem;
                 font-size: 2.5rem !important;
                 font-weight: 700;
+            }
+            .title-emoji {
+                font-size: 2.5rem;
+                margin-right: 0.5rem;
+                filter: none;
+                background: none;
+            }
+            .title-text {
                 background: linear-gradient(90deg, #1f77b4, #2ca02c);
                 -webkit-background-clip: text;
                 -webkit-text-fill-color: transparent;
                 background-clip: text;
+                font-weight: 700;
             }
             .metric-card {
                 background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
@@ -874,6 +883,16 @@ def main():
                 border-radius: 8px;
                 margin: 1rem 0;
                 font-size: 0.95rem;
+            }
+            .model-info .emoji {
+                font-size: 1.1rem;
+                margin-right: 0.3rem;
+                filter: none;
+                background: none;
+            }
+            .model-info .bold-text {
+                font-weight: 700;
+                color: #1976d2;
             }
             .chat-container {
                 background: #fafafa;
@@ -922,7 +941,12 @@ def main():
         """, unsafe_allow_html=True)
 
         # Title first - prominent display
-        st.markdown(f'<h1 class="stTitle">{t["title"]}</h1>', unsafe_allow_html=True)
+        st.markdown(f'''
+            <h1 class="stTitle">
+                <span class="title-emoji">🤖</span>
+                <span class="title-text">{t["title"].replace("🤖 ", "")}</span>
+            </h1>
+        ''', unsafe_allow_html=True)
 
         if not st.session_state.app_initialized:
             st.session_state.app_initialized = True
@@ -937,7 +961,7 @@ def main():
         # Sidebar
         with st.sidebar:
             # Language selection
-            st.markdown(f"**{t['language']}**")
+            st.markdown(f'<span class="bold-text">{t["language"]}</span>', unsafe_allow_html=True)
             selected_lang = st.selectbox(
                 "Select Language",
                 options=["ไทย", "English"],
@@ -966,7 +990,7 @@ def main():
                 st.rerun()
 
             # File uploader
-            st.markdown(f"**{t['upload_button']}**")
+            st.markdown(f'<span class="bold-text">{t["upload_button"]}</span>', unsafe_allow_html=True)
             uploaded_files = st.file_uploader(
                 "Upload Additional Documents",
                 accept_multiple_files=True,
@@ -994,7 +1018,7 @@ def main():
 
             # Statistics
             if st.session_state.debug_mode and st.session_state.documents_processed:
-                st.markdown(f"**📊 {t['stats']}**")
+                st.markdown(f'<span class="bold-text">📊 {t["stats"]}</span>', unsafe_allow_html=True)
                 st.write(f"📁 Local files: {len(st.session_state.local_files)}")
                 st.write(f"📤 Uploaded: {len(st.session_state.uploaded_files)}")
                 st.write(f"🔢 Chunks: {st.session_state.document_chunks}")
@@ -1065,7 +1089,7 @@ def main():
                                 if 'source_documents' in response and response['source_documents']:
                                     with st.expander(f"📚 Sources ({len(response['source_documents'])})"):
                                         for i, doc in enumerate(response['source_documents']):
-                                            st.markdown(f"**Source {i+1}:**")
+                                            st.markdown(f'<span class="bold-text">Source {i+1}:</span>', unsafe_allow_html=True)
                                             content = doc.page_content[:300] + "..." if len(doc.page_content) > 300 else doc.page_content
                                             st.markdown(content)
                                             
@@ -1105,70 +1129,70 @@ def main():
             with st.expander("ℹ️ How to use / วิธีใช้งาน", expanded=True):
                 if st.session_state.language == "en":
                     st.markdown("""
-                    **🚀 Advanced RAG Chatbot with Auto-Load:**
+                    <div class="bold-text">🚀 Advanced RAG Chatbot with Auto-Load:</div>
                     
-                    **📁 Auto-Detection:**
+                    <div class="bold-text">📁 Auto-Detection:</div>
                     - Automatically scans repository for PDF, TXT, CSV, XLSX files
                     - Respects .gitignore patterns
                     - Loads documents on startup
                     
-                    **📤 Additional Upload:**
+                    <div class="bold-text">📤 Additional Upload:</div>
                     - Upload more documents using the sidebar
                     - Combines with auto-detected files
                     - Smart caching for fast reloads
                     
-                    **🤖 AI Features:**
+                    <div class="bold-text">🤖 AI Features:</div>
                     - Gemini Pro language model
                     - MiniLM-L6-v2 embeddings for semantic search
                     - Adjustable similarity threshold
                     - Configurable response parameters
                     
-                    **💾 Smart Caching:**
+                    <div class="bold-text">💾 Smart Caching:</div>
                     - Automatic vector caching
                     - Fast reload for same documents
                     - Cache cleanup and management
                     - Persistent storage across sessions
                     
-                    **📊 File Types Supported:**
+                    <div class="bold-text">📊 File Types Supported:</div>
                     - 📄 PDF files
                     - 📝 Text files (.txt)
                     - 📊 CSV files
                     - 📈 Excel files (.xlsx, .xls)
                     - 📄 Word documents (.docx)
-                    """)
+                    """, unsafe_allow_html=True)
                 else:
                     st.markdown("""
-                    **🚀 Advanced RAG Chatbot พร้อม Auto-Load:**
+                    <div class="bold-text">🚀 Advanced RAG Chatbot พร้อม Auto-Load:</div>
                     
-                    **📁 การตรวจจับอัตโนมัติ:**
+                    <div class="bold-text">📁 การตรวจจับอัตโนมัติ:</div>
                     - สแกนหาไฟล์ PDF, TXT, CSV, XLSX ใน repository อัตโนมัติ
                     - เคารพรูปแบบ .gitignore
                     - โหลดเอกสารตอนเริ่มต้น
                     
-                    **📤 อัปโหลดเพิ่มเติม:**
+                    <div class="bold-text">📤 อัปโหลดเพิ่มเติม:</div>
                     - อัปโหลดเอกสารเพิ่มผ่านแถบด้านข้าง
                     - รวมกับไฟล์ที่ตรวจจับอัตโนมัติ
                     - Smart caching สำหรับโหลดเร็ว
                     
-                    **🤖 ฟีเจอร์ AI:**
+                    <div class="bold-text">🤖 ฟีเจอร์ AI:</div>
                     - โมเดลภาษา Gemini Pro
                     - MiniLM-L6-v2 embeddings สำหรับค้นหาความหมาย
                     - ปรับระดับความคล้ายได้
                     - ตั้งค่าพารามิเตอร์การตอบได้
                     
-                    **💾 Smart Caching:**
+                    <div class="bold-text">💾 Smart Caching:</div>
                     - Cache vectors อัตโนมัติ
                     - โหลดเร็วสำหรับเอกสารเดิม
                     - ทำความสะอาดและจัดการ cache
                     - เก็บข้อมูลถาวรข้ามเซสชั่น
                     
-                    **📊 ประเภทไฟล์ที่รองรับ:**
+                    <div class="bold-text">📊 ประเภทไฟล์ที่รองรับ:</div>
                     - 📄 ไฟล์ PDF
                     - 📝 ไฟล์ข้อความ (.txt)
                     - 📊 ไฟล์ CSV
                     - 📈 ไฟล์ Excel (.xlsx, .xls)
                     - 📄 เอกสาร Word (.docx)
-                    """)
+                    """, unsafe_allow_html=True)
 
             total_files = len(st.session_state.local_files) + len(st.session_state.uploaded_files)
             if total_files == 0:
@@ -1178,7 +1202,7 @@ def main():
 
         # Footer
         st.markdown(
-            '<div class="footer">🤖 Advanced RAG Chatbot v2.1 | Enhanced UX/UI | Created by Arnutt Noitumyae, 2024</div>',
+            '<div class="footer">🤖 Gen AI : RAG Chatbot with Documents (Demo) | Enhanced UX/UI | Created by Arnutt Noitumyae, 2025</div>',
             unsafe_allow_html=True
         )
         
