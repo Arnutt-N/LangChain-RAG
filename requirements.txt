@@ -1,37 +1,130 @@
-# Core dependencies
+# =============================================================================
+# UPDATED REQUIREMENTS.TXT - Advanced RAG Chatbot v2.0
+# =============================================================================
+
+# Core Streamlit framework
 streamlit==1.37.0
 python-dotenv==1.0.1
 
-# Google AI dependencies
+# Google AI and Generative AI dependencies
 google-generativeai==0.7.2
 langchain-google-genai==1.0.8
 
-# LangChain core dependencies - Updated to latest stable
+# LangChain core dependencies - Latest stable versions
 langchain==0.2.11
 langchain-community==0.2.10
 langchain-core==0.2.35
 langchain-text-splitters==0.2.2
 
-# Updated HuggingFace embeddings to avoid deprecation
+# Updated HuggingFace embeddings (no more deprecation warnings)
 langchain-huggingface==0.0.3
 
-# Embeddings and ML
+# ML and Embeddings dependencies
 sentence-transformers==3.0.1
 transformers==4.44.2
+torch==2.7.1
+tokenizers==0.19.1
 
-# Vector database
+# Vector database and similarity search
 faiss-cpu==1.8.0
-
-# Document processing
-pypdf==4.3.1
-unstructured==0.15.0
-openpyxl==3.1.5
-
-# Data processing
-pandas==2.2.2
 numpy==1.26.4
 
-# Utilities
+# Document processing and loaders
+pypdf==4.3.1
+unstructured==0.15.0
+unstructured-client==0.25.9
+openpyxl==3.1.5
+python-docx==1.1.2
+
+# Data processing and analysis
+pandas==2.2.2
+scipy==1.16.1
+
+# HTTP requests and API handling
 requests==2.32.3
+urllib3==2.5.0
+httpx==0.28.1
+
+# Data validation and parsing
 pydantic==2.8.2
 tenacity==8.5.0
+
+# Additional utilities for enhanced functionality
+hashlib-compat==1.0.1
+pathlib2==2.3.7
+typing-extensions==4.14.1
+
+# Optional: For advanced file processing
+python-magic==0.4.27
+chardet==5.2.0
+filetype==1.2.0
+
+# Optional: For enhanced CSV processing
+csvkit==2.0.0
+
+# Optional: For improved PDF processing
+PyMuPDF==1.24.10
+pdfplumber==0.11.4
+
+# Optional: For Word document support
+python-docx2txt==0.8
+
+# Optional: For PowerPoint support
+python-pptx==1.0.2
+
+# Optional: For enhanced Excel processing
+xlrd==2.0.1
+xlsxwriter==3.2.0
+
+# Development and debugging tools (optional)
+jupyter==1.1.1
+ipython==8.29.0
+
+# =============================================================================
+# INSTALLATION INSTRUCTIONS
+# =============================================================================
+
+# Basic installation:
+# pip install -r requirements.txt
+
+# For development:
+# pip install -r requirements.txt jupyter ipython
+
+# For enhanced document processing:
+# pip install PyMuPDF pdfplumber python-docx2txt python-pptx
+
+# Platform-specific notes:
+# - Windows: May need Microsoft Visual C++ Build Tools
+# - macOS: May need Xcode command line tools
+# - Linux: Should work out of the box
+
+# =============================================================================
+# VERSION COMPATIBILITY
+# =============================================================================
+
+# Python: 3.8+ (recommended 3.10+)
+# Streamlit: 1.37.0+
+# LangChain: 0.2.11+
+# FAISS: 1.8.0+
+
+# =============================================================================
+# MEMORY REQUIREMENTS
+# =============================================================================
+
+# Minimum: 4GB RAM
+# Recommended: 8GB+ RAM
+# For large documents: 16GB+ RAM
+
+# =============================================================================
+# TROUBLESHOOTING
+# =============================================================================
+
+# If you encounter issues:
+# 1. Update pip: pip install --upgrade pip
+# 2. Clear cache: pip cache purge
+# 3. Install in virtual environment
+# 4. For M1/M2 Macs: may need specific torch version
+
+# Common fixes:
+# pip install --upgrade setuptools wheel
+# pip install --no-cache-dir -r requirements.txt
