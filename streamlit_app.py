@@ -8,7 +8,42 @@ import time
 # Load environment variables
 load_dotenv()
 
-# Fixed imports - ใช้ community imports
+# Set page configuration FIRST - before any other streamlit commands
+st.set_page_config(
+    layout="wide", 
+    page_title="Gen AI : RAG Chatbot with Documents",
+    page_icon="🤖",
+    initial_sidebar_state="expanded"
+)
+
+# Fixed imports with better error handling
+@st.cache_data
+def check_dependencies():
+    """Check if all required packages are available"""
+    missing_packages = []
+    try:
+        from langchain_huggingface import HuggingFaceEmbeddings
+    except ImportError:
+        try:
+            from langchain_community.embeddings import HuggingFaceEmbeddings
+        except ImportError:
+            missing_packages.append("langchain-huggingface or langchain-community")
+    
+    try:
+        from langchain_google_genai import ChatGoogleGenerativeAI
+    except ImportError:
+        missing_packages.append("langchain-google-genai")
+    
+    return missing_packages
+
+# Check dependencies early
+missing_deps = check_dependencies()
+if missing_deps:
+    st.error(f"Missing packages: {', '.join(missing_deps)}")
+    st.info("Please install the required packages and restart the app.")
+    st.stop()
+
+# Now import everything
 try:
     # Use updated HuggingFace embeddings to avoid deprecation
     try:
@@ -46,15 +81,7 @@ except ImportError as e:
     st.info("Some required packages are missing. Please check your requirements.txt file.")
     st.stop()
 
-# Set page configuration
-st.set_page_config(
-    layout="wide", 
-    page_title="Gen AI : RAG Chatbot with Documents",
-    page_icon="🤖",
-    initial_sidebar_state="expanded"
-)
-
-# Retrieve the API key from Streamlit secrets or environment
+# Early API key check
 api_key = (
     st.secrets.get("GOOGLE_API_KEY") or 
     st.secrets.get("GEMINI_API_KEY") or 
@@ -62,7 +89,6 @@ api_key = (
     os.getenv("GEMINI_API_KEY")
 )
 
-# Ensure the script stops execution if the API key is not set
 if api_key is None:
     st.error("🚨 GOOGLE_API_KEY or GEMINI_API_KEY is not set. Please set it in the Streamlit Cloud secrets or environment variables.")
     st.info("👉 You can get a free API key from: https://makersuite.google.com/app/apikey")
@@ -70,7 +96,7 @@ if api_key is None:
 else:
     os.environ["GOOGLE_API_KEY"] = api_key
 
-# Translations
+# Translations (unchanged)
 translations = {
     "en": {
         "title": "🤖 Gen AI : RAG Chatbot with Documents",
@@ -94,6 +120,8 @@ translations = {
         "retrieval_results": "Retrieved documents",
         "rate_limit_error": "⏳ API rate limit reached. Please wait a moment and try again.",
         "timeout_error": "⏱️ Request timed out. Please try asking a shorter question.",
+        "initializing": "🔧 Initializing system...",
+        "loading_embeddings": "📥 Loading embeddings model...",
     },
     "th": {
         "title": "🤖 Gen AI : แชทบอทเอกสาร RAG",
@@ -117,30 +145,44 @@ translations = {
         "retrieval_results": "เอกสารที่ค้นพบ",
         "rate_limit_error": "⏳ ถึงขีดจำกัดการใช้งาน API กรุณารอสักครู่แล้วลองใหม่",
         "timeout_error": "⏱️ คำขอใช้เวลานานเกินไป กรุณาลองถามคำถามสั้นๆ",
+        "initializing": "🔧 กำลังเตรียมระบบ...",
+        "loading_embeddings": "📥 กำลังโหลดโมเดล embeddings...",
     }
 }
 
 # Initialize session state
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-if "vectorstore" not in st.session_state:
-    st.session_state.vectorstore = None
-if "local_files" not in st.session_state:
-    st.session_state.local_files = []
-if "language" not in st.session_state:
-    st.session_state.language = "en"
-if "uploaded_files" not in st.session_state:
-    st.session_state.uploaded_files = []
-if "documents_processed" not in st.session_state:
-    st.session_state.documents_processed = False
-if "document_chunks" not in st.session_state:
-    st.session_state.document_chunks = 0
-if "debug_mode" not in st.session_state:
-    st.session_state.debug_mode = False
-if "last_request_time" not in st.session_state:
-    st.session_state.last_request_time = 0
+def init_session_state():
+    """Initialize session state variables"""
+    defaults = {
+        "messages": [],
+        "vectorstore": None,
+        "local_files": [],
+        "language": "en",
+        "uploaded_files": [],
+        "documents_processed": False,
+        "document_chunks": 0,
+        "debug_mode": False,
+        "last_request_time": 0,
+        "embeddings_loaded": False,
+        "embeddings_model": None,
+        "app_initialized": False,
+    }
+    
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
+
+# Call initialization
+init_session_state()
+
+# Show loading message if not initialized
+if not st.session_state.app_initialized:
+    t = translations[st.session_state.language]
+    loading_placeholder = st.empty()
+    loading_placeholder.info(f"{t['initializing']} กำลังเตรียมระบบ...")
 
 # Function to load .gitignore patterns
+@st.cache_data
 def load_gitignore():
     patterns = []
     try:
@@ -179,150 +221,279 @@ def check_rate_limit():
     
     st.session_state.last_request_time = time.time()
 
-# Initialize optimized embeddings
-@st.cache_resource
+# Initialize optimized embeddings with better caching and error handling
+@st.cache_resource(show_spinner=False)
 def get_embeddings():
     """Initialize and cache embeddings - optimized for speed"""
     try:
-        # Use smaller, faster model for better performance
+        # Show progress to user
+        if not st.session_state.app_initialized:
+            st.info("📥 Loading embeddings model... โหลดโมเดล embeddings...")
+        
+        # Use even smaller, faster model for better performance
         embeddings = HuggingFaceEmbeddings(
             model_name="sentence-transformers/all-MiniLM-L6-v2",
-            model_kwargs={'device': 'cpu'},
-            encode_kwargs={'normalize_embeddings': True},
-            show_progress=False  # Disable progress bar for speed
+            model_kwargs={
+                'device': 'cpu',
+                'trust_remote_code': False  # Security best practice
+            },
+            encode_kwargs={
+                'normalize_embeddings': True,
+                'batch_size': 16,  # Process in smaller batches
+                'show_progress_bar': False  # Disable progress bar for speed
+            },
+            show_progress=False,  # Disable progress for speed
+            cache_folder=None  # Use default cache
         )
-        return embeddings
+        
+        # Test the embeddings with a simple query
+        test_embedding = embeddings.embed_query("test")
+        if len(test_embedding) > 0:
+            st.session_state.embeddings_loaded = True
+            return embeddings
+        else:
+            st.error("Embeddings model failed to generate vectors")
+            return None
+            
     except Exception as e:
         st.error(f"Error initializing embeddings: {str(e)}")
+        if st.session_state.debug_mode:
+            st.code(str(e))
         return None
 
-# Optimized document loading with better PDF handling
+# Optimized document loading with better timeout handling
 def load_documents(file_paths, uploaded_files):
     documents = []
+    processed_count = 0
+    max_files = 10  # Limit number of files to prevent timeout
     
-    # Load local files
-    for file_path in file_paths:
-        if file_path == 'requirements.txt':
-            continue
-        try:
-            file_extension = file_path.split('.')[-1].lower()
-            
-            if file_extension == 'pdf':
-                loader = PyPDFLoader(file_path)
-            elif file_extension == 'csv':
-                loader = CSVLoader(file_path)
-            elif file_extension == 'txt':
-                loader = TextLoader(file_path, encoding='utf-8')
-            elif file_extension in ['xlsx', 'xls']:
-                loader = UnstructuredExcelLoader(file_path)
+    # Combine and limit files
+    all_files = list(file_paths) + [(f, True) for f in uploaded_files]
+    if len(all_files) > max_files:
+        st.warning(f"Too many files ({len(all_files)}). Processing first {max_files} files.")
+        all_files = all_files[:max_files]
+    
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    try:
+        for i, file_info in enumerate(all_files):
+            if isinstance(file_info, tuple):
+                uploaded_file, is_uploaded = file_info
+                file_name = uploaded_file.name
             else:
+                file_path = file_info
+                file_name = file_path
+                is_uploaded = False
+            
+            if file_name == 'requirements.txt':
                 continue
+                
+            status_text.text(f"Processing {file_name}...")
+            progress_bar.progress((i + 1) / len(all_files))
             
-            docs = loader.load()
-            # Clean and preprocess documents
-            for doc in docs:
-                if hasattr(doc, 'page_content') and doc.page_content.strip():
-                    # Clean the content
-                    doc.page_content = doc.page_content.replace('\n\n', '\n').strip()
-                    if len(doc.page_content) > 50:  # Only include meaningful content
-                        documents.append(doc)
-            
-        except Exception as e:
-            st.warning(f"Could not load file {file_path}: {str(e)}")
-            continue
-    
-    # Load uploaded files with better error handling
-    for uploaded_file in uploaded_files:
-        try:
-            file_extension = uploaded_file.name.split('.')[-1].lower()
-            
-            # Create temporary file
-            with tempfile.NamedTemporaryFile(delete=False, suffix=f".{file_extension}") as temp_file:
-                temp_file.write(uploaded_file.getvalue())
-                temp_file_path = temp_file.name
-            
-            # Load based on file type
             try:
-                if file_extension == 'pdf':
-                    loader = PyPDFLoader(temp_file_path)
-                elif file_extension == 'csv':
-                    loader = CSVLoader(temp_file_path)
-                elif file_extension == 'txt':
-                    loader = TextLoader(temp_file_path, encoding='utf-8')
-                elif file_extension in ['xlsx', 'xls']:
-                    loader = UnstructuredExcelLoader(temp_file_path)
+                if is_uploaded:
+                    docs = load_single_uploaded_file(uploaded_file)
                 else:
-                    continue
+                    docs = load_single_local_file(file_path)
                 
-                docs = loader.load()
-                # Clean and preprocess documents
-                for doc in docs:
-                    if hasattr(doc, 'page_content') and doc.page_content.strip():
-                        # Clean the content
-                        doc.page_content = doc.page_content.replace('\n\n', '\n').strip()
-                        if len(doc.page_content) > 50:  # Only include meaningful content
-                            documents.append(doc)
+                if docs:
+                    documents.extend(docs)
+                    processed_count += 1
+                    
+            except Exception as e:
+                st.warning(f"Could not load file {file_name}: {str(e)}")
+                continue
                 
-            finally:
-                # Always clean up temporary file
-                try:
-                    os.unlink(temp_file_path)
-                except:
-                    pass
-            
-        except Exception as e:
-            st.warning(f"Could not load uploaded file {uploaded_file.name}: {str(e)}")
-            continue
+            # Prevent timeout by processing in chunks
+            if processed_count >= 5:
+                time.sleep(0.1)  # Small delay to prevent blocking
+        
+        progress_bar.empty()
+        status_text.empty()
+        
+    except Exception as e:
+        progress_bar.empty()
+        status_text.empty()
+        st.error(f"Error during document loading: {str(e)}")
     
     return documents
 
-# Optimized document processing with better chunking
+def load_single_local_file(file_path):
+    """Load a single local file"""
+    try:
+        file_extension = file_path.split('.')[-1].lower()
+        
+        if file_extension == 'pdf':
+            loader = PyPDFLoader(file_path)
+        elif file_extension == 'csv':
+            loader = CSVLoader(file_path)
+        elif file_extension == 'txt':
+            loader = TextLoader(file_path, encoding='utf-8')
+        elif file_extension in ['xlsx', 'xls']:
+            loader = UnstructuredExcelLoader(file_path)
+        else:
+            return []
+        
+        docs = loader.load()
+        cleaned_docs = []
+        
+        for doc in docs:
+            if hasattr(doc, 'page_content') and doc.page_content.strip():
+                # Clean the content
+                content = doc.page_content.replace('\n\n', '\n').strip()
+                if len(content) > 50:  # Only include meaningful content
+                    doc.page_content = content
+                    cleaned_docs.append(doc)
+        
+        return cleaned_docs
+        
+    except Exception as e:
+        raise Exception(f"Error loading {file_path}: {str(e)}")
+
+def load_single_uploaded_file(uploaded_file):
+    """Load a single uploaded file"""
+    try:
+        file_extension = uploaded_file.name.split('.')[-1].lower()
+        
+        # Create temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{file_extension}") as temp_file:
+            temp_file.write(uploaded_file.getvalue())
+            temp_file_path = temp_file.name
+        
+        try:
+            if file_extension == 'pdf':
+                loader = PyPDFLoader(temp_file_path)
+            elif file_extension == 'csv':
+                loader = CSVLoader(temp_file_path)
+            elif file_extension == 'txt':
+                loader = TextLoader(temp_file_path, encoding='utf-8')
+            elif file_extension in ['xlsx', 'xls']:
+                loader = UnstructuredExcelLoader(temp_file_path)
+            else:
+                return []
+            
+            docs = loader.load()
+            cleaned_docs = []
+            
+            for doc in docs:
+                if hasattr(doc, 'page_content') and doc.page_content.strip():
+                    # Clean the content
+                    content = doc.page_content.replace('\n\n', '\n').strip()
+                    if len(content) > 50:  # Only include meaningful content
+                        doc.page_content = content
+                        cleaned_docs.append(doc)
+            
+            return cleaned_docs
+            
+        finally:
+            # Always clean up temporary file
+            try:
+                os.unlink(temp_file_path)
+            except:
+                pass
+        
+    except Exception as e:
+        raise Exception(f"Error loading uploaded file {uploaded_file.name}: {str(e)}")
+
+# Optimized document processing with progress tracking
 def process_documents(documents):
     if not documents:
         return None
 
     try:
-        # Use RecursiveCharacterTextSplitter for better chunking
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        # Step 1: Text splitting
+        status_text.text("🔄 Splitting documents into chunks...")
+        progress_bar.progress(0.2)
+        
         text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=600,  # Smaller chunks for better retrieval and faster processing
+            chunk_size=600,  # Smaller chunks for better retrieval
             chunk_overlap=50,  # Reduced overlap
-            separators=["\n\n", "\n", ". ", " ", ""],  # Better separators
+            separators=["\n\n", "\n", ". ", " ", ""],
             length_function=len,
         )
         texts = text_splitter.split_documents(documents)
         
         if not texts:
+            progress_bar.empty()
+            status_text.empty()
             st.warning("No text content found in documents")
             return None
         
-        # Store chunk count for debugging
+        # Store chunk count
         st.session_state.document_chunks = len(texts)
         
-        # Get embeddings
+        # Step 2: Get embeddings
+        status_text.text("📊 Loading embeddings model...")
+        progress_bar.progress(0.4)
+        
         embeddings = get_embeddings()
         if not embeddings:
+            progress_bar.empty()
+            status_text.empty()
             st.error("Could not initialize embeddings")
             return None
         
-        # Create vector store with FAISS
-        vectorstore = FAISS.from_documents(
-            documents=texts,
-            embedding=embeddings
-        )
+        # Step 3: Create vector store
+        status_text.text("🗃️ Creating vector database...")
+        progress_bar.progress(0.6)
+        
+        # Process in smaller batches to prevent timeout
+        batch_size = 50
+        if len(texts) > batch_size:
+            # Create initial vectorstore with first batch
+            vectorstore = FAISS.from_documents(
+                documents=texts[:batch_size],
+                embedding=embeddings
+            )
+            
+            # Add remaining documents in batches
+            for i in range(batch_size, len(texts), batch_size):
+                batch = texts[i:i+batch_size]
+                batch_vs = FAISS.from_documents(documents=batch, embedding=embeddings)
+                vectorstore.merge_from(batch_vs)
+                
+                # Update progress
+                progress = 0.6 + (0.3 * (i / len(texts)))
+                progress_bar.progress(min(progress, 0.9))
+                status_text.text(f"🗃️ Processing batch {i//batch_size + 1}...")
+        else:
+            vectorstore = FAISS.from_documents(
+                documents=texts,
+                embedding=embeddings
+            )
+        
+        progress_bar.progress(1.0)
+        status_text.text("✅ Vector database created successfully!")
+        
+        # Clean up UI
+        time.sleep(0.5)
+        progress_bar.empty()
+        status_text.empty()
         
         return vectorstore
         
     except Exception as e:
+        if 'progress_bar' in locals():
+            progress_bar.empty()
+        if 'status_text' in locals():
+            status_text.empty()
         st.error(f"Error processing documents: {str(e)}")
+        if st.session_state.debug_mode:
+            st.code(str(e))
         return None
 
-# Optimized retrieval chain setup with better error handling
+# Optimized retrieval chain setup
 def setup_retrieval_chain(vectorstore):
     try:
-        # Optimized retriever with fewer results to speed up
+        # Optimized retriever
         retriever = vectorstore.as_retriever(
             search_type="similarity", 
-            search_kwargs={"k": 3}  # Reduced to 3 for faster processing
+            search_kwargs={"k": 3}  # Reduced for faster processing
         )
         
         # Simpler memory setup
@@ -332,78 +503,63 @@ def setup_retrieval_chain(vectorstore):
             output_key="answer"
         )
         
-        # Initialize Gemini model with better error handling and rate limiting
-        try:
-            llm = ChatGoogleGenerativeAI(
-                model="gemini-pro",  # Use gemini-pro instead of flash for better reliability
-                temperature=0.1,
-                max_tokens=512,  # Reduced tokens for faster response
-                google_api_key=api_key,
-                timeout=30,  # 30 second timeout
-                max_retries=1,  # Reduced retries
-            )
-        except Exception as e:
-            st.error(f"Could not initialize Gemini model: {str(e)}")
-            return None
+        # Initialize Gemini model with conservative settings
+        llm = ChatGoogleGenerativeAI(
+            model="gemini-pro",
+            temperature=0.1,
+            max_tokens=512,
+            google_api_key=api_key,
+            request_timeout=30,
+            max_retries=1,
+        )
         
         qa_chain = ConversationalRetrievalChain.from_llm(
             llm=llm, 
             retriever=retriever, 
             memory=memory,
             return_source_documents=True,
-            verbose=False  # Disable verbose for cleaner output
+            verbose=False
         )
         
         return qa_chain
         
     except Exception as e:
         st.error(f"Error setting up retrieval chain: {str(e)}")
+        if st.session_state.debug_mode:
+            st.code(str(e))
         return None
 
-# Enhanced query function with timeout and rate limiting
-def query_with_timeout(chain, question, timeout=45):
+# Enhanced query function with better timeout handling
+def query_with_timeout(chain, question, timeout=30):
     """Query with timeout and better error handling"""
-    import signal
-    import functools
-    
-    def timeout_handler(signum, frame):
-        raise TimeoutError("Query timed out")
-    
-    # Set up timeout
-    old_handler = signal.signal(signal.SIGALRM, timeout_handler)
-    signal.alarm(timeout)
-    
     try:
-        # Check rate limiting before making request
         check_rate_limit()
         
-        # Use invoke instead of __call__ to avoid deprecation
+        # Use invoke instead of __call__
         response = chain.invoke({"question": question})
-        signal.alarm(0)  # Cancel timeout
         return response
-    except TimeoutError:
-        signal.alarm(0)
-        raise TimeoutError("Request timed out")
+        
     except Exception as e:
-        signal.alarm(0)
-        if "quota" in str(e).lower() or "rate" in str(e).lower() or "429" in str(e):
+        error_msg = str(e).lower()
+        if "quota" in error_msg or "rate" in error_msg or "429" in error_msg:
             raise Exception("RATE_LIMIT")
-        raise e
-    finally:
-        signal.signal(signal.SIGALRM, old_handler)
+        elif "timeout" in error_msg or "timed out" in error_msg:
+            raise TimeoutError("Request timed out")
+        else:
+            raise e
 
-# Function to clear all uploaded files and reset vectorstore
+# Utility functions
 def clear_uploaded_files():
     st.session_state.uploaded_files = []
     st.session_state.vectorstore = None
     st.session_state.documents_processed = False
     st.session_state.document_chunks = 0
 
-# Function to refresh local files
+@st.cache_data
 def refresh_local_files():
     try:
         ignore_patterns = load_gitignore()
-        st.session_state.local_files = [
+        return [
             f for f in os.listdir('.') 
             if f.endswith(('.pdf', '.csv', '.txt', '.xlsx', '.xls')) 
             and not should_ignore(f, ignore_patterns) 
@@ -411,7 +567,7 @@ def refresh_local_files():
         ]
     except Exception as e:
         st.warning(f"Could not refresh local files: {str(e)}")
-        st.session_state.local_files = []
+        return []
 
 def main():
     try:
@@ -420,6 +576,13 @@ def main():
             st.session_state.language = st.query_params["language"]
 
         t = translations[st.session_state.language]
+
+        # Mark app as initialized after initial setup
+        if not st.session_state.app_initialized:
+            # Pre-load embeddings in the background
+            get_embeddings()
+            st.session_state.app_initialized = True
+            st.rerun()
 
         # Custom CSS
         st.markdown("""
@@ -490,7 +653,7 @@ def main():
             # Language selection
             st.markdown(f"<div class='sidebar-label'>{t['language']}</div>", unsafe_allow_html=True)
             selected_lang = st.selectbox(
-                "", 
+                "Select Language", 
                 options=["ไทย", "English"], 
                 index=1 if st.session_state.language == "en" else 0, 
                 key="language_selection",
@@ -514,7 +677,7 @@ def main():
             # File uploader
             st.markdown(f"<div class='sidebar-label'>{t['upload_button']}</div>", unsafe_allow_html=True)
             uploaded_files = st.file_uploader(
-                "", 
+                "Upload Documents", 
                 accept_multiple_files=True, 
                 type=['pdf', 'csv', 'txt', 'xlsx', 'xls'], 
                 key="file_uploader",
@@ -549,7 +712,7 @@ def main():
         st.warning("⚠️ **Note**: This app uses Gemini API free tier (50 requests/day). Please use sparingly.")
 
         # Display local knowledge base
-        refresh_local_files()
+        st.session_state.local_files = refresh_local_files()
         if st.session_state.local_files:
             st.markdown(f"<div class='uploaded-docs-header'>{t['local_knowledge']}</div>", unsafe_allow_html=True)
             for file in st.session_state.local_files:
@@ -573,6 +736,8 @@ def main():
                         st.warning("No documents found to process")
                 except Exception as e:
                     st.error(f"{t['error_processing']}: {str(e)}")
+                    if st.session_state.debug_mode:
+                        st.code(str(e))
 
         # Chat interface
         if st.session_state.vectorstore:
@@ -594,8 +759,8 @@ def main():
                     if retrieval_chain:
                         with st.spinner(t["thinking"]):
                             try:
-                                # Shorter, more focused prompt to avoid timeouts
-                                enhanced_prompt = f"Based on the documents, answer: {prompt}"
+                                # Enhanced prompt for better results
+                                enhanced_prompt = f"Based on the provided documents, please answer the following question in detail: {prompt}"
                                 
                                 response = query_with_timeout(retrieval_chain, enhanced_prompt, timeout=30)
                                 answer = response.get('answer', 'No answer generated')
@@ -663,6 +828,7 @@ def main():
                     - ⏱️ **Be Patient**: Responses may take 10-30 seconds
                     - 📝 **Keep Questions Short**: Shorter questions get faster responses
                     - 🔄 **Rate Limiting**: Wait a few seconds between questions
+                    - 📁 **File Limit**: Maximum 10 files to prevent timeouts
                     
                     **Tips for better results:**
                     - Ask specific questions about the document content
@@ -689,6 +855,7 @@ def main():
                     - ⏱️ **อดทนรอ**: การตอบอาจใช้เวลา 10-30 วินาที
                     - 📝 **ถามคำถามสั้นๆ**: คำถามสั้นจะได้คำตอบเร็วกว่า
                     - 🔄 **จำกัดอัตรา**: รอสักครู่ระหว่างคำถาม
+                    - 📁 **จำกัดไฟล์**: สูงสุด 10 ไฟล์เพื่อป้องกันการค้าง
                     
                     **เคล็ดลับสำหรับผลลัพธ์ที่ดีขึ้น:**
                     - ถามคำถามที่เฉพาะเจาะจงเกี่ยวกับเนื้อหาในเอกสาร
