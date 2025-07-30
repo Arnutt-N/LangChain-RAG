@@ -2,20 +2,19 @@
 streamlit==1.37.0
 python-dotenv==1.0.1
 
-# Google AI dependencies - Compatible versions
+# Google AI dependencies
 google-generativeai==0.7.2
 langchain-google-genai==1.0.8
 
-# LangChain dependencies - Compatible versions
+# LangChain core dependencies
 langchain==0.2.11
 langchain-community==0.2.10
 langchain-core==0.2.35
 langchain-text-splitters==0.2.2
 
-# ML and Embeddings
+# Embeddings and ML
 sentence-transformers==3.0.1
 transformers==4.44.2
-scikit-learn==1.5.1
 
 # Vector database
 chromadb==0.5.5
@@ -29,12 +28,7 @@ openpyxl==3.1.5
 pandas==2.2.2
 numpy==1.26.4
 
-# HTTP and utilities
+# Utilities
 requests==2.32.3
 pydantic==2.8.2
 tenacity==8.5.0
-tqdm==4.66.4
-
-# Additional dependencies for document processing
-filetype==1.2.0
-python-magic==0.4.27
