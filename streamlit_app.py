@@ -127,14 +127,14 @@ def save_app_state(state):
 # Translations
 translations = {
     "en": {
-        "title": "🤖 Gen AI : RAG Chatbot with Documents (Demo)",
+        "title": "🤖 Advanced RAG Chatbot",
         "upload_button": "Upload Additional Documents",
         "ask_placeholder": "Ask a question in Thai or English...",
         "processing": "Processing documents...",
         "welcome": "👋 Hello! I'm ready to chat about various topics based on the documents.",
         "upload_success": lambda count: f"✅ {count} document(s) uploaded successfully!",
         "thinking": "🧠 Generating response...",
-        "language": "🌐 Language / ภาษา",
+        "language": "Language / ภาษา",
         "clear_chat": "🗑️ Clear Chat",
         "clear_cache": "🗑️ Clear Cache",
         "reload_local": "🔄 Reload Local Files",
@@ -156,14 +156,14 @@ translations = {
         "loading_complete": "Loading complete",
     },
     "th": {
-        "title": "🤖 Gen AI : RAG Chatbot with Documents (Demo)",
+        "title": "🤖 แชทบอท RAG ขั้นสูง",
         "upload_button": "อัปโหลดเอกสารเพิ่มเติม",
         "ask_placeholder": "ถามคำถามเป็นภาษาไทยหรืออังกฤษ...",
         "processing": "กำลังประมวลผลเอกสาร...",
         "welcome": "👋 สวัสดี! ฉันพร้อมพูดคุยเกี่ยวกับเอกสารต่างๆ",
         "upload_success": lambda count: f"✅ อัปโหลดเอกสาร {count} ฉบับสำเร็จ!",
         "thinking": "🧠 กำลังสร้างคำตอบ...",
-        "language": "🌐 ภาษา / Language",
+        "language": "ภาษา / Language",
         "clear_chat": "🗑️ ล้างการแชท",
         "clear_cache": "🗑️ ล้าง Cache",
         "reload_local": "🔄 โหลดไฟล์ local ใหม่",
@@ -846,7 +846,14 @@ def main():
             .main .block-container {
                 max-width: 1200px;
                 padding-top: 1rem;
-                padding-bottom: 3rem;
+                padding-bottom: 5rem; /* เพิ่มพื้นที่ด้านล่างให้ฟุตเตอร์ */
+            }
+            @media (max-width: 768px) {
+                .main .block-container {
+                    padding-bottom: 6rem; /* เพิ่มพื้นที่มากขึ้นในมือถือ */
+                    padding-left: 1rem;
+                    padding-right: 1rem;
+                }
             }
             .stTitle {
                 text-align: center;
@@ -854,12 +861,22 @@ def main():
                 margin-bottom: 1.5rem;
                 font-size: 2.5rem !important;
                 font-weight: 700;
+                line-height: 1.4 !important;
+                padding: 0.5rem 0;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                min-height: 4rem;
             }
             .title-emoji {
-                font-size: 2.5rem;
+                font-size: 3rem;
                 margin-right: 0.5rem;
                 filter: none;
                 background: none;
+                line-height: 1;
+                display: inline-block;
+                vertical-align: middle;
+                padding: 0.2rem;
             }
             .title-text {
                 background: linear-gradient(90deg, #1f77b4, #2ca02c);
@@ -867,6 +884,9 @@ def main():
                 -webkit-text-fill-color: transparent;
                 background-clip: text;
                 font-weight: 700;
+                line-height: 1.2;
+                display: inline-block;
+                vertical-align: middle;
             }
             .metric-card {
                 background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
@@ -883,31 +903,51 @@ def main():
                 border-radius: 8px;
                 margin: 1rem 0;
                 font-size: 0.95rem;
+                line-height: 1.6;
             }
             .model-info .emoji {
-                font-size: 1.1rem;
+                font-size: 1.2rem;
                 margin-right: 0.3rem;
                 filter: none;
                 background: none;
+                line-height: 1;
+                display: inline-block;
+                vertical-align: middle;
+                padding: 0.1rem;
             }
             .model-info .bold-text {
                 font-weight: 700;
                 color: #1976d2;
+                vertical-align: middle;
             }
             .chat-container {
                 background: #fafafa;
                 border-radius: 12px;
                 padding: 1rem;
                 margin-top: 1rem;
+                margin-bottom: 2rem; /* เพิ่มระยะห่างด้านล่าง */
+                min-height: 50vh;
+            }
+            @media (max-width: 768px) {
+                .chat-container {
+                    margin-bottom: 4rem; /* เพิ่มระยะห่างมากขึ้นในมือถือ */
+                    padding: 0.8rem;
+                }
             }
             .welcome-card {
                 background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%);
                 border: 2px solid #ff9800;
                 border-radius: 16px;
                 padding: 2rem;
-                margin: 2rem 0;
+                margin: 2rem 0 3rem 0; /* เพิ่มระยะห่างด้านล่าง */
                 text-align: center;
                 box-shadow: 0 4px 12px rgba(255, 152, 0, 0.2);
+            }
+            @media (max-width: 768px) {
+                .welcome-card {
+                    padding: 1.5rem;
+                    margin: 1rem 0 4rem 0; /* เพิ่มระยะห่างในมือถือ */
+                }
             }
             .status-badge {
                 display: inline-block;
@@ -924,28 +964,42 @@ def main():
             }
             .footer {
                 position: fixed;
-                left: 50%;
+                left: 0;
                 bottom: 0;
-                transform: translateX(-50%);
-                text-align: center;
-                padding: 10px 0;
-                font-size: 14px;
-                color: #545454;
-                background-color: white;
                 width: 100%;
+                text-align: center;
+                padding: 8px 0;
+                font-size: 12px;
+                color: #545454;
+                background-color: rgba(255, 255, 255, 0.95);
+                backdrop-filter: blur(10px);
                 border-top: 1px solid #eee;
                 z-index: 999;
                 font-weight: 500;
+                box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
+            }
+            @media (max-width: 768px) {
+                .footer {
+                    font-size: 10px;
+                    padding: 6px 0;
+                    line-height: 1.2;
+                }
+            }
+            @media (max-width: 480px) {
+                .footer {
+                    font-size: 9px;
+                    padding: 4px 0;
+                }
             }
             </style>
         """, unsafe_allow_html=True)
 
         # Title first - prominent display
         st.markdown(f'''
-            <h1 class="stTitle">
+            <div class="stTitle">
                 <span class="title-emoji">🤖</span>
                 <span class="title-text">{t["title"].replace("🤖 ", "")}</span>
-            </h1>
+            </div>
         ''', unsafe_allow_html=True)
 
         if not st.session_state.app_initialized:
@@ -961,7 +1015,7 @@ def main():
         # Sidebar
         with st.sidebar:
             # Language selection
-            st.markdown(f'<span class="bold-text">{t["language"]}</span>', unsafe_allow_html=True)
+            st.markdown(f'<div class="emoji-text"><span class="emoji-inline">🌐</span><span class="bold-text">{t["language"].replace("🌐 ", "")}</span></div>', unsafe_allow_html=True)
             selected_lang = st.selectbox(
                 "Select Language",
                 options=["ไทย", "English"],
@@ -990,7 +1044,7 @@ def main():
                 st.rerun()
 
             # File uploader
-            st.markdown(f'<span class="bold-text">{t["upload_button"]}</span>', unsafe_allow_html=True)
+            st.markdown(f'<div class="emoji-text"><span class="emoji-inline">📤</span><span class="bold-text">{t["upload_button"]}</span></div>', unsafe_allow_html=True)
             uploaded_files = st.file_uploader(
                 "Upload Additional Documents",
                 accept_multiple_files=True,
@@ -1018,7 +1072,7 @@ def main():
 
             # Statistics
             if st.session_state.debug_mode and st.session_state.documents_processed:
-                st.markdown(f'<span class="bold-text">📊 {t["stats"]}</span>', unsafe_allow_html=True)
+                st.markdown(f'<div class="emoji-text"><span class="emoji-inline">📊</span><span class="bold-text">{t["stats"]}</span></div>', unsafe_allow_html=True)
                 st.write(f"📁 Local files: {len(st.session_state.local_files)}")
                 st.write(f"📤 Uploaded: {len(st.session_state.uploaded_files)}")
                 st.write(f"🔢 Chunks: {st.session_state.document_chunks}")
@@ -1200,9 +1254,13 @@ def main():
             else:
                 st.info(f"📁 Found {len(st.session_state.local_files)} local files. Ready to chat!")
 
-        # Footer
+        # Footer with mobile-responsive text
+        footer_text = "🤖 Advanced RAG Chatbot v2.1 | Enhanced UX/UI"
+        if st.query_params.get("mobile", "false") == "true":
+            footer_text = "🤖 RAG Chatbot v2.1"
+        
         st.markdown(
-            '<div class="footer">🤖 Gen AI : RAG Chatbot with Documents (Demo) | Enhanced UX/UI | Created by Arnutt Noitumyae, 2025</div>',
+            f'<div class="footer">{footer_text}<br><small>Created by Arnutt Noitumyae, 2024</small></div>',
             unsafe_allow_html=True
         )
         
