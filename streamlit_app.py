@@ -35,6 +35,11 @@ def check_dependencies():
         from langchain_text_splitters import RecursiveCharacterTextSplitter
         from langchain.memory import ConversationBufferMemory
         from langchain.chains import ConversationalRetrievalChain
+        # Optional Mistral import
+        try:
+            from mistralai import Mistral
+        except ImportError:
+            pass  # Mistral is optional
     except ImportError as e:
         missing_package = str(e).split("'")[1] if "'" in str(e) else str(e)
         missing_packages.append(missing_package)
@@ -72,12 +77,20 @@ try:
     import pandas as pd
     import numpy as np
     
+    # Optional Mistral import
+    try:
+        from mistralai import Mistral
+        MISTRAL_AVAILABLE = True
+    except ImportError:
+        MISTRAL_AVAILABLE = False
+        st.info("💡 Mistral AI not available. Install with: pip install mistralai")
+    
 except ImportError as e:
     st.error(f"Import error: {e}")
     st.info("Please check your package versions and requirements.txt")
     st.stop()
 
-# Configuration
+# Configuration - API Keys
 GOOGLE_API_KEY = (
     st.secrets.get("GOOGLE_API_KEY") or 
     st.secrets.get("GEMINI_API_KEY") or 
@@ -85,19 +98,36 @@ GOOGLE_API_KEY = (
     os.getenv("GEMINI_API_KEY")
 )
 
-if not GOOGLE_API_KEY:
-    st.error("🚨 Google API Key not found!")
+MISTRAL_API_KEY = (
+    st.secrets.get("MISTRAL_API_KEY") or 
+    os.getenv("MISTRAL_API_KEY")
+)
+
+# Check if at least one API key is available
+if not GOOGLE_API_KEY and not MISTRAL_API_KEY:
+    st.error("🚨 No API Keys found!")
     st.info("""
-    **Setup Google API Key:**
+    **Setup API Keys (choose one or both):**
+    
+    **Option 1: Google Gemini API**
     1. Go to https://makersuite.google.com/app/apikey
     2. Create API key
     3. Add to Streamlit secrets as GOOGLE_API_KEY
+    
+    **Option 2: Mistral AI API**
+    1. Go to https://console.mistral.ai/
+    2. Create API key  
+    3. Add to Streamlit secrets as MISTRAL_API_KEY
     """)
     st.stop()
 
-# Configure Google AI
-os.environ["GOOGLE_API_KEY"] = GOOGLE_API_KEY
-genai.configure(api_key=GOOGLE_API_KEY)
+# Configure APIs
+if GOOGLE_API_KEY:
+    os.environ["GOOGLE_API_KEY"] = GOOGLE_API_KEY
+    genai.configure(api_key=GOOGLE_API_KEY)
+
+if MISTRAL_API_KEY and MISTRAL_AVAILABLE:
+    mistral_client = Mistral(api_key=MISTRAL_API_KEY)
 
 # Setup persistent storage
 CACHE_DIR = Path("./vector_cache")
@@ -138,7 +168,7 @@ translations = {
         "clear_chat": "🗑️ Clear Chat",
         "clear_cache": "🗑️ Clear Cache",
         "reload_local": "🔄 Reload Local Files",
-        "model_info": '<span class="emoji">🤖</span><span class="bold-text">Model:</span> Gemini Pro | <span class="emoji">📊</span><span class="bold-text">Embedding:</span> MiniLM-L6-v2 | <span class="emoji">🗃️</span><span class="bold-text">Vector DB:</span> FAISS',
+        "model_info": '<span class="emoji">🤖</span><span class="bold-text">Model:</span> Gemini Pro / Mistral Large | <span class="emoji">📊</span><span class="bold-text">Embedding:</span> MiniLM-L6-v2 | <span class="emoji">🗃️</span><span class="bold-text">Vector DB:</span> FAISS',
         "no_documents": "📄 No documents found. Please check the repository or upload files.",
         "error_processing": "❌ Error processing documents. Please try again.",
         "error_response": "🚨 Sorry, I encountered an error while generating response.",
@@ -167,7 +197,7 @@ translations = {
         "clear_chat": "🗑️ ล้างการแชท",
         "clear_cache": "🗑️ ล้าง Cache",
         "reload_local": "🔄 โหลดไฟล์ local ใหม่",
-        "model_info": '<span class="emoji">🤖</span><span class="bold-text">โมเดล:</span> Gemini Pro | <span class="emoji">📊</span><span class="bold-text">Embedding:</span> MiniLM-L6-v2 | <span class="emoji">🗃️</span><span class="bold-text">Vector DB:</span> FAISS',
+        "model_info": '<span class="emoji">🤖</span><span class="bold-text">โมเดล:</span> Gemini Pro / Mistral Large | <span class="emoji">📊</span><span class="bold-text">Embedding:</span> MiniLM-L6-v2 | <span class="emoji">🗃️</span><span class="bold-text">Vector DB:</span> FAISS',
         "no_documents": "📄 ไม่พบเอกสาร กรุณาตรวจสอบ repository หรืออัปโหลดไฟล์",
         "error_processing": "❌ เกิดข้อผิดพลาดในการประมวลผลเอกสาร",
         "error_response": "🚨 ขออภัย เกิดข้อผิดพลาดในการสร้างคำตอบ",
@@ -207,6 +237,7 @@ def init_session_state():
         "auto_load_attempted": False,
         "show_loading_messages": True,
         "initialization_complete": False,
+        "selected_model": "gemini", # Default model
     }
     
     for key, value in defaults.items():
@@ -678,6 +709,55 @@ def auto_load_local_files():
                 st.session_state.show_loading_messages = False
                 st.session_state.initialization_complete = True
 
+# Custom Mistral LangChain wrapper
+class MistralLLM:
+    def __init__(self, api_key: str, model: str = "mistral-large-latest", temperature: float = 0.1, max_tokens: int = 512):
+        self.client = Mistral(api_key=api_key)
+        self.model = model
+        self.temperature = temperature
+        self.max_tokens = max_tokens
+    
+    def invoke(self, messages):
+        """Invoke method to match LangChain interface"""
+        try:
+            # Convert LangChain format to Mistral format
+            if hasattr(messages, 'content'):
+                # Single message object
+                mistral_messages = [{"role": "user", "content": messages.content}]
+            elif isinstance(messages, str):
+                # String message
+                mistral_messages = [{"role": "user", "content": messages}]
+            elif isinstance(messages, list):
+                # List of messages
+                mistral_messages = []
+                for msg in messages:
+                    if hasattr(msg, 'content') and hasattr(msg, 'type'):
+                        role = "user" if msg.type == "human" else "assistant"
+                        mistral_messages.append({"role": role, "content": msg.content})
+                    elif isinstance(msg, dict):
+                        mistral_messages.append(msg)
+            else:
+                # Fallback
+                mistral_messages = [{"role": "user", "content": str(messages)}]
+            
+            response = self.client.chat.complete(
+                model=self.model,
+                messages=mistral_messages,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens
+            )
+            
+            # Create response object that matches LangChain format
+            class Response:
+                def __init__(self, content):
+                    self.content = content
+            
+            return Response(response.choices[0].message.content)
+            
+        except Exception as e:
+            st.error(f"Mistral API Error: {e}")
+            return Response("Sorry, I encountered an error while generating response.")
+
 # Enhanced query processing
 def setup_advanced_retrieval_chain():
     """Setup retrieval chain with advanced features"""
@@ -1006,6 +1086,32 @@ def main():
             new_language = "th" if selected_lang == "ไทย" else "en"
             if new_language != st.session_state.language:
                 st.session_state.language = new_language
+
+            st.markdown("---")
+
+            # Model selection
+            st.markdown(f'<div class="emoji-text"><span class="emoji-inline">🤖</span><span class="bold-text">AI Model</span></div>', unsafe_allow_html=True)
+            available_models = []
+            if GOOGLE_API_KEY:
+                available_models.append("Gemini Pro")
+            if MISTRAL_API_KEY and MISTRAL_AVAILABLE:
+                available_models.append("Mistral Large")
+            
+            if available_models:
+                model_choice = st.selectbox(
+                    "Choose AI Model",
+                    options=available_models,
+                    index=0 if st.session_state.selected_model == "gemini" else (1 if "Mistral Large" in available_models else 0),
+                    label_visibility="collapsed"
+                )
+                
+                # Update selected model
+                if model_choice == "Mistral Large":
+                    st.session_state.selected_model = "mistral"
+                else:
+                    st.session_state.selected_model = "gemini"
+            else:
+                st.error("No AI models available")
 
             st.markdown("---")
 
