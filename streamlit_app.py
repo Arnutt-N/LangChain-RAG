@@ -127,7 +127,7 @@ def save_app_state(state):
 # Translations
 translations = {
     "en": {
-        "title": "🤖 Gen AI : RAG Chatbot with Documents (Demo)",
+        "title": "🤖 Advanced RAG Chatbot",
         "upload_button": "Upload Additional Documents",
         "ask_placeholder": "Ask a question in Thai or English...",
         "processing": "Processing documents...",
@@ -156,7 +156,7 @@ translations = {
         "loading_complete": "Loading complete",
     },
     "th": {
-        "title": "🤖 Gen AI : RAG Chatbot with Documents (Demo)",
+        "title": "🤖 แชทบอท RAG ขั้นสูง",
         "upload_button": "อัปโหลดเอกสารเพิ่มเติม",
         "ask_placeholder": "ถามคำถามเป็นภาษาไทยหรืออังกฤษ...",
         "processing": "กำลังประมวลผลเอกสาร...",
@@ -846,12 +846,12 @@ def main():
             .main .block-container {
                 max-width: 1200px;
                 padding-top: 4rem; /* เพิ่มพื้นที่ด้านบนให้หลบ navbar */
-                padding-bottom: 8rem; /* เพิ่มพื้นที่ด้านล่างมากขึ้น */
+                padding-bottom: 2rem; /* ลดพื้นที่ด้านล่าง เนื่องจากไม่มีฟุตเตอร์ */
             }
             @media (max-width: 768px) {
                 .main .block-container {
                     padding-top: 3.5rem; /* ลดลงเล็กน้อยในมือถือ */
-                    padding-bottom: 10rem; /* เพิ่มพื้นที่มากขึ้นในมือถือ */
+                    padding-bottom: 2rem; /* ลดพื้นที่ในมือถือ */
                     padding-left: 1rem;
                     padding-right: 1rem;
                 }
@@ -931,12 +931,12 @@ def main():
                 border-radius: 12px;
                 padding: 1rem;
                 margin-top: 1rem;
-                margin-bottom: 6rem; /* เพิ่มระยะห่างด้านล่างมากขึ้น */
+                margin-bottom: 1rem; /* ลดระยะห่างด้านล่าง */
                 min-height: 50vh;
             }
             @media (max-width: 768px) {
                 .chat-container {
-                    margin-bottom: 8rem; /* เพิ่มระยะห่างมากขึ้นในมือถือ */
+                    margin-bottom: 1rem; /* ลดระยะห่างในมือถือ */
                     padding: 0.8rem;
                 }
             }
@@ -945,14 +945,14 @@ def main():
                 border: 2px solid #ff9800;
                 border-radius: 16px;
                 padding: 2rem;
-                margin: 2rem 0 6rem 0; /* เพิ่มระยะห่างด้านล่างมากขึ้น */
+                margin: 2rem 0 2rem 0; /* ลดระยะห่างด้านล่าง */
                 text-align: center;
                 box-shadow: 0 4px 12px rgba(255, 152, 0, 0.2);
             }
             @media (max-width: 768px) {
                 .welcome-card {
                     padding: 1.5rem;
-                    margin: 1rem 0 8rem 0; /* เพิ่มระยะห่างในมือถือ */
+                    margin: 1rem 0 1.5rem 0; /* ลดระยะห่างในมือถือ */
                 }
             }
             .status-badge {
@@ -969,33 +969,7 @@ def main():
                 border: 1px solid #c3e6cb;
             }
             .footer {
-                position: fixed;
-                left: 0;
-                bottom: 0;
-                width: 100%;
-                text-align: center;
-                padding: 8px 0;
-                font-size: 12px;
-                color: #545454;
-                background-color: rgba(255, 255, 255, 0.95);
-                backdrop-filter: blur(10px);
-                border-top: 1px solid #eee;
-                z-index: 999;
-                font-weight: 500;
-                box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
-            }
-            @media (max-width: 768px) {
-                .footer {
-                    font-size: 10px;
-                    padding: 6px 0;
-                    line-height: 1.2;
-                }
-            }
-            @media (max-width: 480px) {
-                .footer {
-                    font-size: 9px;
-                    padding: 4px 0;
-                }
+                display: none; /* ซ่อนฟุตเตอร์ */
             }
             </style>
         """, unsafe_allow_html=True)
@@ -1257,7 +1231,15 @@ def main():
             else:
                 st.info(f"📁 Found {len(st.session_state.local_files)} local files. Ready to chat!")
 
+        # Footer with mobile-responsive text
+        footer_text = "🤖 Advanced RAG Chatbot v2.1 | Enhanced UX/UI"
+        if st.query_params.get("mobile", "false") == "true":
+            footer_text = "🤖 RAG Chatbot v2.1"
         
+        st.markdown(
+            f'<div class="footer">{footer_text}<br><small>Created by Arnutt Noitumyae, 2024</small></div>',
+            unsafe_allow_html=True
+        )
         
     except Exception as e:
         st.error(f"Application error: {str(e)}")
