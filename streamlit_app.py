@@ -226,24 +226,11 @@ def check_rate_limit():
 def get_embeddings():
     """Initialize and cache embeddings - optimized for speed"""
     try:
-        # Show progress to user
-        if not st.session_state.app_initialized:
-            st.info("📥 Loading embeddings model... โหลดโมเดล embeddings...")
-        
-        # Use even smaller, faster model for better performance
+        # Use minimal configuration to avoid parameter conflicts
         embeddings = HuggingFaceEmbeddings(
             model_name="sentence-transformers/all-MiniLM-L6-v2",
-            model_kwargs={
-                'device': 'cpu',
-                'trust_remote_code': False  # Security best practice
-            },
-            encode_kwargs={
-                'normalize_embeddings': True,
-                'batch_size': 16,  # Process in smaller batches
-                'show_progress_bar': False  # Disable progress bar for speed
-            },
-            show_progress=False,  # Disable progress for speed
-            cache_folder=None  # Use default cache
+            model_kwargs={'device': 'cpu'},
+            encode_kwargs={'normalize_embeddings': True}
         )
         
         # Test the embeddings with a simple query
@@ -579,10 +566,7 @@ def main():
 
         # Mark app as initialized after initial setup
         if not st.session_state.app_initialized:
-            # Pre-load embeddings in the background
-            get_embeddings()
             st.session_state.app_initialized = True
-            st.rerun()
 
         # Custom CSS
         st.markdown("""
@@ -665,7 +649,8 @@ def main():
             if new_language != st.session_state.language:
                 st.session_state.language = new_language
                 st.query_params["language"] = new_language
-                st.rerun()
+                # Use experimental_rerun instead of rerun to avoid RerunData error
+                st.experimental_rerun()
             
             st.markdown("<div class='spacer'></div>", unsafe_allow_html=True)
 
@@ -700,7 +685,8 @@ def main():
             if st.button(t["clear_chat"], use_container_width=True):
                 st.session_state.messages = []
                 clear_uploaded_files()
-                st.rerun()
+                # Use experimental_rerun instead of rerun
+                st.experimental_rerun()
 
         # Main content
         st.title(t["title"])
