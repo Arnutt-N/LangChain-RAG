@@ -3,13 +3,19 @@ import os
 import fnmatch
 import io
 from dotenv import load_dotenv
+import time
 
 # Load environment variables
 load_dotenv()
 
 # Fixed imports - ใช้ community imports
 try:
-    from langchain_community.embeddings import HuggingFaceEmbeddings
+    # Use updated HuggingFace embeddings to avoid deprecation
+    try:
+        from langchain_huggingface import HuggingFaceEmbeddings
+    except ImportError:
+        from langchain_community.embeddings import HuggingFaceEmbeddings
+    
     from langchain_google_genai import ChatGoogleGenerativeAI
     from langchain.memory import ConversationBufferMemory
     from langchain.chains import ConversationalRetrievalChain
@@ -75,10 +81,10 @@ translations = {
         "welcome": "👋 Hello! I'm ready to chat about various topics based on the documents. How can I assist you today?",
         "upload_success": lambda count: f"✅ {count} new document(s) uploaded and processed successfully!",
         "local_knowledge": "📚 My Documents",
-        "thinking": "🧠 Thinking...",
+        "thinking": "🧠 Generating response...",
         "language": "🌐 Language / ภาษา",
         "clear_chat": "🗑️ Clear Chat",
-        "model_info": "🤖 **Model:** Gemini Flash | 📊 **Embedding:** MiniLM-L6 | 🗃️ **Vector DB:** FAISS",
+        "model_info": "🤖 **Model:** Gemini Pro | 📊 **Embedding:** MiniLM-L6 | 🗃️ **Vector DB:** FAISS",
         "no_documents": "📄 No documents uploaded yet. Please upload some documents to start chatting!",
         "error_processing": "❌ Error processing documents. Please try again.",
         "error_response": "🚨 Sorry, I encountered an error while generating response.",
@@ -86,6 +92,8 @@ translations = {
         "debug_info": "🔍 Debug Info",
         "chunk_count": "Document chunks",
         "retrieval_results": "Retrieved documents",
+        "rate_limit_error": "⏳ API rate limit reached. Please wait a moment and try again.",
+        "timeout_error": "⏱️ Request timed out. Please try asking a shorter question.",
     },
     "th": {
         "title": "🤖 Gen AI : แชทบอทเอกสาร RAG",
@@ -96,10 +104,10 @@ translations = {
         "welcome": "👋 สวัสดี! ฉันพร้อมที่จะพูดคุยเกี่ยวกับหัวข้อต่างๆ ตามเอกสารที่มี วันนี้ฉันจะช่วยคุณอย่างไรดี?",
         "upload_success": lambda count: f"✅ อัปโหลดและประมวลผลเอกสารใหม่ {count} ฉบับสำเร็จแล้ว!",
         "local_knowledge": "📚 คลังข้อมูลของฉัน",
-        "thinking": "🧠 กำลังคิด...",
+        "thinking": "🧠 กำลังสร้างคำตอบ...",
         "language": "🌐 ภาษา / Language",
         "clear_chat": "🗑️ ล้างการแชท",
-        "model_info": "🤖 **โมเดล:** Gemini Flash | 📊 **Embedding:** MiniLM-L6 | 🗃️ **Vector DB:** FAISS",
+        "model_info": "🤖 **โมเดล:** Gemini Pro | 📊 **Embedding:** MiniLM-L6 | 🗃️ **Vector DB:** FAISS",
         "no_documents": "📄 ยังไม่มีเอกสารอัปโหลด กรุณาอัปโหลดเอกสารเพื่อเริ่มแชท!",
         "error_processing": "❌ เกิดข้อผิดพลาดในการประมวลผลเอกสาร กรุณาลองใหม่อีกครั้ง",
         "error_response": "🚨 ขออภัย เกิดข้อผิดพลาดในการสร้างคำตอบ",
@@ -107,6 +115,8 @@ translations = {
         "debug_info": "🔍 ข้อมูลดีบัก",
         "chunk_count": "ส่วนของเอกสาร",
         "retrieval_results": "เอกสารที่ค้นพบ",
+        "rate_limit_error": "⏳ ถึงขีดจำกัดการใช้งาน API กรุณารอสักครู่แล้วลองใหม่",
+        "timeout_error": "⏱️ คำขอใช้เวลานานเกินไป กรุณาลองถามคำถามสั้นๆ",
     }
 }
 
@@ -127,6 +137,8 @@ if "document_chunks" not in st.session_state:
     st.session_state.document_chunks = 0
 if "debug_mode" not in st.session_state:
     st.session_state.debug_mode = False
+if "last_request_time" not in st.session_state:
+    st.session_state.last_request_time = 0
 
 # Function to load .gitignore patterns
 def load_gitignore():
@@ -153,6 +165,19 @@ def should_ignore(filename, patterns):
         if fnmatch.fnmatch(filename, pattern):
             return True
     return False
+
+# Rate limiting function
+def check_rate_limit():
+    """Check if we should wait before making another request"""
+    current_time = time.time()
+    time_since_last = current_time - st.session_state.last_request_time
+    min_interval = 3  # Minimum 3 seconds between requests
+    
+    if time_since_last < min_interval:
+        wait_time = min_interval - time_since_last
+        time.sleep(wait_time)
+    
+    st.session_state.last_request_time = time.time()
 
 # Initialize optimized embeddings
 @st.cache_resource
@@ -259,8 +284,8 @@ def process_documents(documents):
     try:
         # Use RecursiveCharacterTextSplitter for better chunking
         text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=800,  # Smaller chunks for better retrieval
-            chunk_overlap=100,  # Reduced overlap
+            chunk_size=600,  # Smaller chunks for better retrieval and faster processing
+            chunk_overlap=50,  # Reduced overlap
             separators=["\n\n", "\n", ". ", " ", ""],  # Better separators
             length_function=len,
         )
@@ -291,13 +316,13 @@ def process_documents(documents):
         st.error(f"Error processing documents: {str(e)}")
         return None
 
-# Optimized retrieval chain setup
+# Optimized retrieval chain setup with better error handling
 def setup_retrieval_chain(vectorstore):
     try:
-        # Optimized retriever with more results
+        # Optimized retriever with fewer results to speed up
         retriever = vectorstore.as_retriever(
             search_type="similarity", 
-            search_kwargs={"k": 5}  # Increased to 5 for better context
+            search_kwargs={"k": 3}  # Reduced to 3 for faster processing
         )
         
         # Simpler memory setup
@@ -307,29 +332,26 @@ def setup_retrieval_chain(vectorstore):
             output_key="answer"
         )
         
-        # Initialize Gemini model - use fastest available
+        # Initialize Gemini model with better error handling and rate limiting
         try:
             llm = ChatGoogleGenerativeAI(
-                model="gemini-1.5-flash",
+                model="gemini-pro",  # Use gemini-pro instead of flash for better reliability
                 temperature=0.1,
-                max_tokens=1024,  # Limit tokens for faster response
-                google_api_key=api_key
+                max_tokens=512,  # Reduced tokens for faster response
+                google_api_key=api_key,
+                timeout=30,  # 30 second timeout
+                max_retries=1,  # Reduced retries
             )
-        except Exception:
-            # Fallback to gemini-pro
-            llm = ChatGoogleGenerativeAI(
-                model="gemini-pro",
-                temperature=0.1,
-                max_tokens=1024,
-                google_api_key=api_key
-            )
+        except Exception as e:
+            st.error(f"Could not initialize Gemini model: {str(e)}")
+            return None
         
         qa_chain = ConversationalRetrievalChain.from_llm(
             llm=llm, 
             retriever=retriever, 
             memory=memory,
             return_source_documents=True,
-            verbose=st.session_state.debug_mode  # Enable verbose only in debug mode
+            verbose=False  # Disable verbose for cleaner output
         )
         
         return qa_chain
@@ -337,6 +359,38 @@ def setup_retrieval_chain(vectorstore):
     except Exception as e:
         st.error(f"Error setting up retrieval chain: {str(e)}")
         return None
+
+# Enhanced query function with timeout and rate limiting
+def query_with_timeout(chain, question, timeout=45):
+    """Query with timeout and better error handling"""
+    import signal
+    import functools
+    
+    def timeout_handler(signum, frame):
+        raise TimeoutError("Query timed out")
+    
+    # Set up timeout
+    old_handler = signal.signal(signal.SIGALRM, timeout_handler)
+    signal.alarm(timeout)
+    
+    try:
+        # Check rate limiting before making request
+        check_rate_limit()
+        
+        # Use invoke instead of __call__ to avoid deprecation
+        response = chain.invoke({"question": question})
+        signal.alarm(0)  # Cancel timeout
+        return response
+    except TimeoutError:
+        signal.alarm(0)
+        raise TimeoutError("Request timed out")
+    except Exception as e:
+        signal.alarm(0)
+        if "quota" in str(e).lower() or "rate" in str(e).lower() or "429" in str(e):
+            raise Exception("RATE_LIMIT")
+        raise e
+    finally:
+        signal.signal(signal.SIGALRM, old_handler)
 
 # Function to clear all uploaded files and reset vectorstore
 def clear_uploaded_files():
@@ -491,6 +545,9 @@ def main():
         # Display model information
         st.info(t["model_info"])
 
+        # Show API usage warning
+        st.warning("⚠️ **Note**: This app uses Gemini API free tier (50 requests/day). Please use sparingly.")
+
         # Display local knowledge base
         refresh_local_files()
         if st.session_state.local_files:
@@ -537,15 +594,10 @@ def main():
                     if retrieval_chain:
                         with st.spinner(t["thinking"]):
                             try:
-                                # Enhanced prompt for better retrieval
-                                enhanced_prompt = f"""Based on the provided documents, please answer the following question in {st.session_state.language}. 
-                                If the information is not available in the documents, please say so clearly.
+                                # Shorter, more focused prompt to avoid timeouts
+                                enhanced_prompt = f"Based on the documents, answer: {prompt}"
                                 
-                                Question: {prompt}
-                                
-                                Please provide a comprehensive answer based on the document content."""
-                                
-                                response = retrieval_chain({"question": enhanced_prompt})
+                                response = query_with_timeout(retrieval_chain, enhanced_prompt, timeout=30)
                                 answer = response.get('answer', 'No answer generated')
                                 
                                 st.markdown(answer)
@@ -556,7 +608,7 @@ def main():
                                     with st.expander("📚 Sources"):
                                         for i, doc in enumerate(response['source_documents']):
                                             st.markdown(f"**Source {i+1}:**")
-                                            content = doc.page_content[:400] + "..." if len(doc.page_content) > 400 else doc.page_content
+                                            content = doc.page_content[:300] + "..." if len(doc.page_content) > 300 else doc.page_content
                                             st.markdown(content)
                                             if hasattr(doc, 'metadata') and doc.metadata:
                                                 st.caption(f"Metadata: {doc.metadata}")
@@ -568,10 +620,19 @@ def main():
                                 else:
                                     if st.session_state.debug_mode:
                                         st.warning("No source documents retrieved - this might indicate an issue with document processing or retrieval.")
-                                            
-                            except Exception as e:
-                                error_msg = f"{t['error_response']}: {str(e)}"
+                                
+                            except TimeoutError:
+                                error_msg = t["timeout_error"]
                                 st.error(error_msg)
+                                st.session_state.messages.append({"role": "assistant", "content": error_msg})
+                            except Exception as e:
+                                if "RATE_LIMIT" in str(e):
+                                    error_msg = t["rate_limit_error"]
+                                    st.error(error_msg)
+                                    st.info("💡 **Tip**: Try again in a few minutes, or use a shorter question.")
+                                else:
+                                    error_msg = f"{t['error_response']}: {str(e)}"
+                                    st.error(error_msg)
                                 st.session_state.messages.append({"role": "assistant", "content": error_msg})
                                 if st.session_state.debug_mode:
                                     st.code(str(e))
@@ -597,6 +658,12 @@ def main():
                     4. 🔍 **Debug Mode**: Enable debug mode to see detailed processing information
                     5. 🌐 **Change Language**: Use the language selector in the sidebar
                     
+                    **Important Notes:**
+                    - ⚠️ **Free API Limit**: 50 requests per day - use wisely!
+                    - ⏱️ **Be Patient**: Responses may take 10-30 seconds
+                    - 📝 **Keep Questions Short**: Shorter questions get faster responses
+                    - 🔄 **Rate Limiting**: Wait a few seconds between questions
+                    
                     **Tips for better results:**
                     - Ask specific questions about the document content
                     - Use clear and complete sentences
@@ -617,6 +684,12 @@ def main():
                     4. 🔍 **โหมดดีบัก**: เปิดโหมดดีบักเพื่อดูข้อมูลการประมวลผลโดยละเอียด
                     5. 🌐 **เปลี่ยนภาษา**: ใช้ตัวเลือกภาษาในแถบด้านข้าง
                     
+                    **ข้อสำคัญ:**
+                    - ⚠️ **ขีดจำกัด API ฟรี**: 50 คำขอต่อวัน - ใช้อย่างประหยัด!
+                    - ⏱️ **อดทนรอ**: การตอบอาจใช้เวลา 10-30 วินาที
+                    - 📝 **ถามคำถามสั้นๆ**: คำถามสั้นจะได้คำตอบเร็วกว่า
+                    - 🔄 **จำกัดอัตรา**: รอสักครู่ระหว่างคำถาม
+                    
                     **เคล็ดลับสำหรับผลลัพธ์ที่ดีขึ้น:**
                     - ถามคำถามที่เฉพาะเจาะจงเกี่ยวกับเนื้อหาในเอกสาร
                     - ใช้ประโยคที่ชัดเจนและสมบูรณ์
@@ -631,7 +704,7 @@ def main():
 
         # Footer
         st.markdown(
-            '<div class="footer">Created by Arnutt Noitumyae, 2024 | Optimized with Gemini & FAISS</div>',
+            '<div class="footer">Created by Arnutt Noitumyae, 2024 | Rate-Limited Gemini & FAISS</div>',
             unsafe_allow_html=True
         )
         
