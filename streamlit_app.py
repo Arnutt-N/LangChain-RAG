@@ -1265,7 +1265,7 @@ def main():
         # st.markdown(
         #     f'<div class="footer">{footer_text}<br><small>Created by Arnutt Noitumyae, 2024</small></div>',
         #     unsafe_allow_html=True
-        )
+        # )
         
     except Exception as e:
         st.error(f"Application error: {str(e)}")
