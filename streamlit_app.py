@@ -161,7 +161,7 @@ translations = {
         "upload_button": "Upload Additional Documents",
         "ask_placeholder": "Ask a question in Thai or English...",
         "processing": "Processing documents...",
-        "welcome": "👋 Hello! I'm ready to chat about various topics based on the documents.",
+        "welcome": "Hello! I'm ready to chat about various topics based on the documents.",
         "upload_success": lambda count: f"✅ {count} document(s) uploaded successfully!",
         "thinking": "🧠 Generating response...",
         "language": "Language / ภาษา",
@@ -190,7 +190,7 @@ translations = {
         "upload_button": "อัปโหลดเอกสารเพิ่มเติม",
         "ask_placeholder": "ถามคำถามเป็นภาษาไทยหรืออังกฤษ...",
         "processing": "กำลังประมวลผลเอกสาร...",
-        "welcome": "👋 สวัสดี! ฉันพร้อมพูดคุยเกี่ยวกับเอกสารต่างๆ",
+        "welcome": "สวัสดี! ฉันพร้อมพูดคุยเกี่ยวกับเอกสารต่างๆ",
         "upload_success": lambda count: f"✅ อัปโหลดเอกสาร {count} ฉบับสำเร็จ!",
         "thinking": "🧠 กำลังสร้างคำตอบ...",
         "language": "ภาษา / Language",
@@ -642,12 +642,11 @@ def process_all_documents(local_files: List[str], uploaded_files: List, show_pro
         
         if progress_bar:
             progress_bar.progress(1.0)
-            time.sleep(0.3)
+            # Small delay then clean up
+            time.sleep(0.2)
             progress_bar.empty()
         if status_text:
             status_text.empty()
-        if show_progress and st.session_state.show_loading_messages:
-            process_status.empty()
         
         return True
         
@@ -656,8 +655,6 @@ def process_all_documents(local_files: List[str], uploaded_files: List, show_pro
             progress_bar.empty()
         if status_text:
             status_text.empty()
-        if show_progress and st.session_state.show_loading_messages:
-            process_status.empty()
         return False
 
 # Auto-load local files on startup with improved UX
@@ -681,12 +678,15 @@ def auto_load_local_files():
     
     t = translations[st.session_state.language]
     
-    if local_files:
-        # Show initial file discovery message only once per app session
-        if st.session_state.show_loading_messages:
-            st.info(t["found_local_files"](len(local_files)))
-        
-        # Auto-process if we have local files
+    if not local_files:
+        return  # Exit early if no files
+    
+    # Show initial file discovery message only once per app session
+    if st.session_state.show_loading_messages:
+        st.info(t["found_local_files"](len(local_files)))
+    
+    # Auto-process if we have local files - no spinner to avoid hanging
+    try:
         success = process_all_documents(local_files, [], show_progress=st.session_state.show_loading_messages)
         
         if success:
@@ -698,6 +698,9 @@ def auto_load_local_files():
             # Disable loading messages for subsequent users
             st.session_state.show_loading_messages = False
             st.session_state.initialization_complete = True
+    except Exception as e:
+        st.error(f"Error during auto-load: {e}")
+        st.session_state.show_loading_messages = False
 
 # Custom Mistral LangChain wrapper
 class MistralLLM:
@@ -1014,15 +1017,31 @@ def main():
                 background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%);
                 border: 2px solid #ff9800;
                 border-radius: 16px;
-                padding: 2rem;
-                margin: 2rem 0 2rem 0; /* ลดระยะห่างด้านล่าง */
+                padding: 1.5rem;
+                margin: 1.5rem 0 2rem 0;
                 text-align: center;
                 box-shadow: 0 4px 12px rgba(255, 152, 0, 0.2);
             }
+            .welcome-card h3 {
+                font-size: 1.2rem;
+                margin-bottom: 0.5rem;
+                color: #f57c00;
+            }
+            .welcome-card p {
+                font-size: 1rem;
+                margin: 0;
+                color: #ef6c00;
+            }
             @media (max-width: 768px) {
                 .welcome-card {
-                    padding: 1.5rem;
-                    margin: 1rem 0 1.5rem 0; /* ลดระยะห่างในมือถือ */
+                    padding: 1rem;
+                    margin: 1rem 0 1.5rem 0;
+                }
+                .welcome-card h3 {
+                    font-size: 1.1rem;
+                }
+                .welcome-card p {
+                    font-size: 0.9rem;
                 }
             }
             .status-badge {
@@ -1193,7 +1212,7 @@ def main():
                 with st.chat_message(message["role"]):
                     st.markdown(message["content"])
 
-            # Chat input
+            # Chat input - make sure it's always visible
             if prompt := st.chat_input(t["ask_placeholder"]):
                 # Add user message
                 st.session_state.messages.append({"role": "user", "content": prompt})
@@ -1243,17 +1262,20 @@ def main():
                         st.error("⚠️ Could not set up the retrieval system.")
             
             st.markdown('</div>', unsafe_allow_html=True)
+            
+            # Ensure chat input area is always available
+            st.markdown('<div style="min-height: 80px;"></div>', unsafe_allow_html=True)
 
         else:
             # Welcome message with enhanced styling
             st.markdown(f"""
                 <div class="welcome-card">
-                    <h3>👋 {t['welcome']}</h3>
+                    <h3>{t['welcome']}</h3>
                     <p>System is ready for document-based conversations!</p>
                 </div>
             """, unsafe_allow_html=True)
             
-            with st.expander("ℹ️ How to use / วิธีใช้งาน", expanded=True):
+            with st.expander("ℹ️ How to use / วิธีใช้งาน", expanded=False):
                 if st.session_state.language == "en":
                     st.markdown("""
                     <div class="bold-text">🚀 Advanced RAG Chatbot with Auto-Load:</div>
@@ -1326,6 +1348,9 @@ def main():
                 st.info(t["no_documents"])
             else:
                 st.info(f"📁 Found {len(st.session_state.local_files)} local files. Ready to chat!")
+            
+            # Make sure chat input is always visible when no documents are processed
+            st.markdown('<div style="height: 60px;"></div>', unsafe_allow_html=True)  # Spacer for chat input
 
         # Footer removed - cleaner interface
         
