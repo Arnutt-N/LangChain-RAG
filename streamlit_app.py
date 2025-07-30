@@ -845,12 +845,13 @@ def main():
             <style>
             .main .block-container {
                 max-width: 1200px;
-                padding-top: 1rem;
-                padding-bottom: 5rem; /* เพิ่มพื้นที่ด้านล่างให้ฟุตเตอร์ */
+                padding-top: 4rem; /* เพิ่มพื้นที่ด้านบนให้หลบ navbar */
+                padding-bottom: 8rem; /* เพิ่มพื้นที่ด้านล่างมากขึ้น */
             }
             @media (max-width: 768px) {
                 .main .block-container {
-                    padding-bottom: 6rem; /* เพิ่มพื้นที่มากขึ้นในมือถือ */
+                    padding-top: 3.5rem; /* ลดลงเล็กน้อยในมือถือ */
+                    padding-bottom: 10rem; /* เพิ่มพื้นที่มากขึ้นในมือถือ */
                     padding-left: 1rem;
                     padding-right: 1rem;
                 }
@@ -858,25 +859,29 @@ def main():
             .stTitle {
                 text-align: center;
                 color: #1f77b4;
-                margin-bottom: 1.5rem;
+                margin-top: 1.5rem; /* เพิ่ม margin-top ให้หลบ navbar */
+                margin-bottom: 2rem;
                 font-size: 2.5rem !important;
                 font-weight: 700;
                 line-height: 1.4 !important;
-                padding: 0.5rem 0;
+                padding: 1rem 0; /* เพิ่ม padding ด้านบนและล่าง */
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                min-height: 4rem;
+                min-height: 5rem; /* เพิ่มความสูงขั้นต่ำ */
+                position: relative;
+                z-index: 10; /* ให้อยู่เหนือ element อื่น */
             }
             .title-emoji {
-                font-size: 3rem;
-                margin-right: 0.5rem;
+                font-size: 3.2rem; /* เพิ่มขนาดเล็กน้อย */
+                margin-right: 0.6rem;
                 filter: none;
                 background: none;
                 line-height: 1;
                 display: inline-block;
                 vertical-align: middle;
-                padding: 0.2rem;
+                padding: 0.3rem; /* เพิ่ม padding */
+                margin-top: -0.2rem; /* ปรับตำแหน่งให้ตรงกลาง */
             }
             .title-text {
                 background: linear-gradient(90deg, #1f77b4, #2ca02c);
@@ -884,9 +889,10 @@ def main():
                 -webkit-text-fill-color: transparent;
                 background-clip: text;
                 font-weight: 700;
-                line-height: 1.2;
+                line-height: 1.3; /* ปรับ line-height */
                 display: inline-block;
                 vertical-align: middle;
+                padding: 0.2rem 0; /* เพิ่ม padding */
             }
             .metric-card {
                 background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
@@ -925,12 +931,12 @@ def main():
                 border-radius: 12px;
                 padding: 1rem;
                 margin-top: 1rem;
-                margin-bottom: 2rem; /* เพิ่มระยะห่างด้านล่าง */
+                margin-bottom: 6rem; /* เพิ่มระยะห่างด้านล่างมากขึ้น */
                 min-height: 50vh;
             }
             @media (max-width: 768px) {
                 .chat-container {
-                    margin-bottom: 4rem; /* เพิ่มระยะห่างมากขึ้นในมือถือ */
+                    margin-bottom: 8rem; /* เพิ่มระยะห่างมากขึ้นในมือถือ */
                     padding: 0.8rem;
                 }
             }
@@ -939,14 +945,14 @@ def main():
                 border: 2px solid #ff9800;
                 border-radius: 16px;
                 padding: 2rem;
-                margin: 2rem 0 3rem 0; /* เพิ่มระยะห่างด้านล่าง */
+                margin: 2rem 0 6rem 0; /* เพิ่มระยะห่างด้านล่างมากขึ้น */
                 text-align: center;
                 box-shadow: 0 4px 12px rgba(255, 152, 0, 0.2);
             }
             @media (max-width: 768px) {
                 .welcome-card {
                     padding: 1.5rem;
-                    margin: 1rem 0 4rem 0; /* เพิ่มระยะห่างในมือถือ */
+                    margin: 1rem 0 8rem 0; /* เพิ่มระยะห่างในมือถือ */
                 }
             }
             .status-badge {
@@ -1081,29 +1087,26 @@ def main():
                 cache_files = list(CACHE_DIR.glob("vectors_*"))
                 st.write(f"💾 Cache files: {len(cache_files)}")
 
-            # Clear buttons
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button(t["clear_chat"], use_container_width=True):
-                    st.session_state.messages = []
-                    st.success("✅ Chat cleared!")
+            # Clear buttons - แยกเป็น 2 แถว
+            if st.button(t["clear_chat"], use_container_width=True):
+                st.session_state.messages = []
+                st.success("✅ Chat cleared!")
             
-            with col2:
-                if st.button(t["clear_cache"], use_container_width=True):
-                    try:
-                        import shutil
-                        if CACHE_DIR.exists():
-                            shutil.rmtree(CACHE_DIR)
-                            CACHE_DIR.mkdir(exist_ok=True)
-                        st.session_state.vectorstore = None
-                        st.session_state.documents_processed = False
-                        st.session_state.auto_load_attempted = False
-                        st.session_state.show_loading_messages = True
-                        # Reset app state
-                        save_app_state({"initialized": False, "last_load": 0})
-                        st.success("✅ Cache cleared!")
-                    except Exception as e:
-                        st.error(f"Error clearing cache: {e}")
+            if st.button(t["clear_cache"], use_container_width=True):
+                try:
+                    import shutil
+                    if CACHE_DIR.exists():
+                        shutil.rmtree(CACHE_DIR)
+                        CACHE_DIR.mkdir(exist_ok=True)
+                    st.session_state.vectorstore = None
+                    st.session_state.documents_processed = False
+                    st.session_state.auto_load_attempted = False
+                    st.session_state.show_loading_messages = True
+                    # Reset app state
+                    save_app_state({"initialized": False, "last_load": 0})
+                    st.success("✅ Cache cleared!")
+                except Exception as e:
+                    st.error(f"Error clearing cache: {e}")
 
         # Main content
         if st.session_state.documents_processed:
