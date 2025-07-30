@@ -24,12 +24,12 @@ try:
     
     # Text splitter - try multiple import paths
     try:
-        from langchain_text_splitters import CharacterTextSplitter
+        from langchain_text_splitters import CharacterTextSplitter, RecursiveCharacterTextSplitter
     except ImportError:
         try:
-            from langchain.text_splitters import CharacterTextSplitter
+            from langchain.text_splitters import CharacterTextSplitter, RecursiveCharacterTextSplitter
         except ImportError:
-            from langchain.text_splitter import CharacterTextSplitter
+            from langchain.text_splitter import CharacterTextSplitter, RecursiveCharacterTextSplitter
     
     # Use FAISS instead of ChromaDB for better compatibility
     from langchain_community.vectorstores import FAISS
@@ -78,11 +78,14 @@ translations = {
         "thinking": "🧠 Thinking...",
         "language": "🌐 Language / ภาษา",
         "clear_chat": "🗑️ Clear Chat",
-        "model_info": "🤖 **Model:** Gemini Pro | 📊 **Embedding:** Sentence Transformers | 🗃️ **Vector DB:** FAISS",
+        "model_info": "🤖 **Model:** Gemini Flash | 📊 **Embedding:** MiniLM-L6 | 🗃️ **Vector DB:** FAISS",
         "no_documents": "📄 No documents uploaded yet. Please upload some documents to start chatting!",
         "error_processing": "❌ Error processing documents. Please try again.",
         "error_response": "🚨 Sorry, I encountered an error while generating response.",
         "error_setup": "⚠️ Sorry, I couldn't set up the retrieval system.",
+        "debug_info": "🔍 Debug Info",
+        "chunk_count": "Document chunks",
+        "retrieval_results": "Retrieved documents",
     },
     "th": {
         "title": "🤖 Gen AI : แชทบอทเอกสาร RAG",
@@ -96,11 +99,14 @@ translations = {
         "thinking": "🧠 กำลังคิด...",
         "language": "🌐 ภาษา / Language",
         "clear_chat": "🗑️ ล้างการแชท",
-        "model_info": "🤖 **โมเดล:** Gemini Pro | 📊 **Embedding:** Sentence Transformers | 🗃️ **Vector DB:** FAISS",
+        "model_info": "🤖 **โมเดล:** Gemini Flash | 📊 **Embedding:** MiniLM-L6 | 🗃️ **Vector DB:** FAISS",
         "no_documents": "📄 ยังไม่มีเอกสารอัปโหลด กรุณาอัปโหลดเอกสารเพื่อเริ่มแชท!",
         "error_processing": "❌ เกิดข้อผิดพลาดในการประมวลผลเอกสาร กรุณาลองใหม่อีกครั้ง",
         "error_response": "🚨 ขออภัย เกิดข้อผิดพลาดในการสร้างคำตอบ",
         "error_setup": "⚠️ ขออภัย ไม่สามารถตั้งค่าระบบค้นหาได้",
+        "debug_info": "🔍 ข้อมูลดีบัก",
+        "chunk_count": "ส่วนของเอกสาร",
+        "retrieval_results": "เอกสารที่ค้นพบ",
     }
 }
 
@@ -117,6 +123,10 @@ if "uploaded_files" not in st.session_state:
     st.session_state.uploaded_files = []
 if "documents_processed" not in st.session_state:
     st.session_state.documents_processed = False
+if "document_chunks" not in st.session_state:
+    st.session_state.document_chunks = 0
+if "debug_mode" not in st.session_state:
+    st.session_state.debug_mode = False
 
 # Function to load .gitignore patterns
 def load_gitignore():
@@ -128,9 +138,9 @@ def load_gitignore():
                 try:
                     with open('.gitignore', 'r', encoding=encoding) as file:
                         patterns = file.read().splitlines()
-                    break  # If successful, exit the loop
+                    break
                 except UnicodeDecodeError:
-                    continue  # If unsuccessful, try the next encoding
+                    continue
     except Exception as e:
         st.warning(f"Could not load .gitignore: {str(e)}")
     return patterns
@@ -144,23 +154,24 @@ def should_ignore(filename, patterns):
             return True
     return False
 
-# Initialize Embeddings with fallback options
+# Initialize optimized embeddings
 @st.cache_resource
 def get_embeddings():
-    """Initialize and cache embeddings with fallback options"""
+    """Initialize and cache embeddings - optimized for speed"""
     try:
-        # Try smaller, more reliable model first for Streamlit Cloud
+        # Use smaller, faster model for better performance
         embeddings = HuggingFaceEmbeddings(
             model_name="sentence-transformers/all-MiniLM-L6-v2",
             model_kwargs={'device': 'cpu'},
-            encode_kwargs={'normalize_embeddings': True}
+            encode_kwargs={'normalize_embeddings': True},
+            show_progress=False  # Disable progress bar for speed
         )
         return embeddings
     except Exception as e:
         st.error(f"Error initializing embeddings: {str(e)}")
         return None
 
-# Load documents with comprehensive error handling
+# Optimized document loading with better PDF handling
 def load_documents(file_paths, uploaded_files):
     documents = []
     
@@ -183,13 +194,19 @@ def load_documents(file_paths, uploaded_files):
                 continue
             
             docs = loader.load()
-            documents.extend(docs)
+            # Clean and preprocess documents
+            for doc in docs:
+                if hasattr(doc, 'page_content') and doc.page_content.strip():
+                    # Clean the content
+                    doc.page_content = doc.page_content.replace('\n\n', '\n').strip()
+                    if len(doc.page_content) > 50:  # Only include meaningful content
+                        documents.append(doc)
             
         except Exception as e:
             st.warning(f"Could not load file {file_path}: {str(e)}")
             continue
     
-    # Load uploaded files
+    # Load uploaded files with better error handling
     for uploaded_file in uploaded_files:
         try:
             file_extension = uploaded_file.name.split('.')[-1].lower()
@@ -213,7 +230,13 @@ def load_documents(file_paths, uploaded_files):
                     continue
                 
                 docs = loader.load()
-                documents.extend(docs)
+                # Clean and preprocess documents
+                for doc in docs:
+                    if hasattr(doc, 'page_content') and doc.page_content.strip():
+                        # Clean the content
+                        doc.page_content = doc.page_content.replace('\n\n', '\n').strip()
+                        if len(doc.page_content) > 50:  # Only include meaningful content
+                            documents.append(doc)
                 
             finally:
                 # Always clean up temporary file
@@ -228,17 +251,18 @@ def load_documents(file_paths, uploaded_files):
     
     return documents
 
-# Process documents using FAISS instead of ChromaDB
+# Optimized document processing with better chunking
 def process_documents(documents):
     if not documents:
         return None
 
     try:
-        # Split documents into chunks
-        text_splitter = CharacterTextSplitter(
-            chunk_size=1000, 
-            chunk_overlap=200,
-            separator="\n"
+        # Use RecursiveCharacterTextSplitter for better chunking
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=800,  # Smaller chunks for better retrieval
+            chunk_overlap=100,  # Reduced overlap
+            separators=["\n\n", "\n", ". ", " ", ""],  # Better separators
+            length_function=len,
         )
         texts = text_splitter.split_documents(documents)
         
@@ -246,13 +270,16 @@ def process_documents(documents):
             st.warning("No text content found in documents")
             return None
         
+        # Store chunk count for debugging
+        st.session_state.document_chunks = len(texts)
+        
         # Get embeddings
         embeddings = get_embeddings()
         if not embeddings:
             st.error("Could not initialize embeddings")
             return None
         
-        # Create vector store with FAISS (more compatible than ChromaDB)
+        # Create vector store with FAISS
         vectorstore = FAISS.from_documents(
             documents=texts,
             embedding=embeddings
@@ -264,48 +291,45 @@ def process_documents(documents):
         st.error(f"Error processing documents: {str(e)}")
         return None
 
-# Setup retrieval chain with model fallback
+# Optimized retrieval chain setup
 def setup_retrieval_chain(vectorstore):
     try:
+        # Optimized retriever with more results
         retriever = vectorstore.as_retriever(
             search_type="similarity", 
-            search_kwargs={"k": 3}
+            search_kwargs={"k": 5}  # Increased to 5 for better context
         )
         
+        # Simpler memory setup
         memory = ConversationBufferMemory(
             memory_key="chat_history", 
             return_messages=True,
             output_key="answer"
         )
         
-        # Initialize Gemini model with fallback options
-        models_to_try = [
-            "gemini-1.5-flash",
-            "gemini-pro"
-        ]
-        
-        llm = None
-        for model in models_to_try:
-            try:
-                llm = ChatGoogleGenerativeAI(
-                    model=model,
-                    temperature=0.1,
-                    google_api_key=api_key
-                )
-                break
-            except Exception as e:
-                st.warning(f"Model {model} not available: {str(e)}")
-                continue
-        
-        if not llm:
-            st.error("Could not initialize any Gemini model")
-            return None
+        # Initialize Gemini model - use fastest available
+        try:
+            llm = ChatGoogleGenerativeAI(
+                model="gemini-1.5-flash",
+                temperature=0.1,
+                max_tokens=1024,  # Limit tokens for faster response
+                google_api_key=api_key
+            )
+        except Exception:
+            # Fallback to gemini-pro
+            llm = ChatGoogleGenerativeAI(
+                model="gemini-pro",
+                temperature=0.1,
+                max_tokens=1024,
+                google_api_key=api_key
+            )
         
         qa_chain = ConversationalRetrievalChain.from_llm(
             llm=llm, 
             retriever=retriever, 
             memory=memory,
-            return_source_documents=True
+            return_source_documents=True,
+            verbose=st.session_state.debug_mode  # Enable verbose only in debug mode
         )
         
         return qa_chain
@@ -319,6 +343,7 @@ def clear_uploaded_files():
     st.session_state.uploaded_files = []
     st.session_state.vectorstore = None
     st.session_state.documents_processed = False
+    st.session_state.document_chunks = 0
 
 # Function to refresh local files
 def refresh_local_files():
@@ -395,19 +420,20 @@ def main():
                 margin-top: 1.0rem;
                 border-radius: 10px;
             }
-            .success-message {
-                background-color: #d4edda;
-                border: 1px solid #c3e6cb;
+            .debug-info {
+                background-color: #f8f9fa;
+                border: 1px solid #dee2e6;
                 border-radius: 5px;
                 padding: 10px;
                 margin: 10px 0;
+                font-size: 12px;
             }
             </style>
         """, unsafe_allow_html=True)
 
         # Sidebar
         with st.sidebar:
-            # Language selection moved to the top
+            # Language selection
             st.markdown(f"<div class='sidebar-label'>{t['language']}</div>", unsafe_allow_html=True)
             selected_lang = st.selectbox(
                 "", 
@@ -424,13 +450,15 @@ def main():
                 st.query_params["language"] = new_language
                 st.rerun()
             
-            # Spacer between language selection and file uploader
             st.markdown("<div class='spacer'></div>", unsafe_allow_html=True)
 
-            # Add "Upload Documents" text above the file uploader
-            st.markdown(f"<div class='sidebar-label'>{t['upload_button']}</div>", unsafe_allow_html=True)
+            # Debug mode toggle
+            st.session_state.debug_mode = st.checkbox("🔍 Debug Mode", value=st.session_state.debug_mode)
+            
+            st.markdown("<div class='spacer'></div>", unsafe_allow_html=True)
 
             # File uploader
+            st.markdown(f"<div class='sidebar-label'>{t['upload_button']}</div>", unsafe_allow_html=True)
             uploaded_files = st.file_uploader(
                 "", 
                 accept_multiple_files=True, 
@@ -443,9 +471,13 @@ def main():
             # Handle file uploads
             if uploaded_files and uploaded_files != st.session_state.uploaded_files:
                 st.session_state.uploaded_files = uploaded_files
-                st.session_state.vectorstore = None  # Reset vectorstore to force reprocessing
+                st.session_state.vectorstore = None
                 st.session_state.documents_processed = False
                 st.success(t["upload_success"](len(uploaded_files)))
+
+            # Show debug info if enabled
+            if st.session_state.debug_mode and st.session_state.document_chunks > 0:
+                st.markdown(f"<div class='debug-info'>{t['chunk_count']}: {st.session_state.document_chunks}</div>", unsafe_allow_html=True)
 
             # Clear chat button
             if st.button(t["clear_chat"], use_container_width=True):
@@ -477,7 +509,7 @@ def main():
                         st.session_state.vectorstore = process_documents(documents)
                         if st.session_state.vectorstore:
                             st.session_state.documents_processed = True
-                            st.success(f"✅ Processed {len(documents)} document chunks successfully!")
+                            st.success(f"✅ Processed {len(documents)} documents into {st.session_state.document_chunks} chunks!")
                         else:
                             st.error(t["error_processing"])
                     else:
@@ -505,27 +537,44 @@ def main():
                     if retrieval_chain:
                         with st.spinner(t["thinking"]):
                             try:
-                                response = retrieval_chain({"question": prompt})
+                                # Enhanced prompt for better retrieval
+                                enhanced_prompt = f"""Based on the provided documents, please answer the following question in {st.session_state.language}. 
+                                If the information is not available in the documents, please say so clearly.
+                                
+                                Question: {prompt}
+                                
+                                Please provide a comprehensive answer based on the document content."""
+                                
+                                response = retrieval_chain({"question": enhanced_prompt})
                                 answer = response.get('answer', 'No answer generated')
                                 
                                 st.markdown(answer)
                                 st.session_state.messages.append({"role": "assistant", "content": answer})
                                 
-                                # Show sources if available
+                                # Show sources and debug info
                                 if 'source_documents' in response and response['source_documents']:
                                     with st.expander("📚 Sources"):
                                         for i, doc in enumerate(response['source_documents']):
                                             st.markdown(f"**Source {i+1}:**")
-                                            content = doc.page_content[:300] + "..." if len(doc.page_content) > 300 else doc.page_content
+                                            content = doc.page_content[:400] + "..." if len(doc.page_content) > 400 else doc.page_content
                                             st.markdown(content)
                                             if hasattr(doc, 'metadata') and doc.metadata:
                                                 st.caption(f"Metadata: {doc.metadata}")
                                             st.markdown("---")
+                                    
+                                    # Debug info
+                                    if st.session_state.debug_mode:
+                                        st.markdown(f"<div class='debug-info'>{t['retrieval_results']}: {len(response['source_documents'])}</div>", unsafe_allow_html=True)
+                                else:
+                                    if st.session_state.debug_mode:
+                                        st.warning("No source documents retrieved - this might indicate an issue with document processing or retrieval.")
                                             
                             except Exception as e:
                                 error_msg = f"{t['error_response']}: {str(e)}"
                                 st.error(error_msg)
                                 st.session_state.messages.append({"role": "assistant", "content": error_msg})
+                                if st.session_state.debug_mode:
+                                    st.code(str(e))
                     else:
                         error_msg = t["error_setup"]
                         st.error(error_msg)
@@ -545,7 +594,13 @@ def main():
                     1. 📁 **Upload Documents**: Use the sidebar to upload PDF, TXT, CSV, or XLSX files
                     2. ⏳ **Wait for Processing**: The system will process your documents automatically
                     3. 💬 **Start Chatting**: Ask questions about your documents in Thai or English
-                    4. 🌐 **Change Language**: Use the language selector in the sidebar
+                    4. 🔍 **Debug Mode**: Enable debug mode to see detailed processing information
+                    5. 🌐 **Change Language**: Use the language selector in the sidebar
+                    
+                    **Tips for better results:**
+                    - Ask specific questions about the document content
+                    - Use clear and complete sentences
+                    - If the bot doesn't find relevant information, try rephrasing your question
                     
                     **Supported File Types:**
                     - 📄 PDF files
@@ -559,7 +614,13 @@ def main():
                     1. 📁 **อัปโหลดเอกสาร**: ใช้แถบด้านข้างเพื่ออัปโหลดไฟล์ PDF, TXT, CSV หรือ XLSX
                     2. ⏳ **รอการประมวลผล**: ระบบจะประมวลผลเอกสารของคุณโดยอัตโนมัติ
                     3. 💬 **เริ่มแชท**: ถามคำถามเกี่ยวกับเอกสารของคุณเป็นภาษาไทยหรืออังกฤษ
-                    4. 🌐 **เปลี่ยนภาษา**: ใช้ตัวเลือกภาษาในแถบด้านข้าง
+                    4. 🔍 **โหมดดีบัก**: เปิดโหมดดีบักเพื่อดูข้อมูลการประมวลผลโดยละเอียด
+                    5. 🌐 **เปลี่ยนภาษา**: ใช้ตัวเลือกภาษาในแถบด้านข้าง
+                    
+                    **เคล็ดลับสำหรับผลลัพธ์ที่ดีขึ้น:**
+                    - ถามคำถามที่เฉพาะเจาะจงเกี่ยวกับเนื้อหาในเอกสาร
+                    - ใช้ประโยคที่ชัดเจนและสมบูรณ์
+                    - หากบอทหาข้อมูลที่เกี่ยวข้องไม่เจอ ลองเปลี่ยนคำถาม
                     
                     **ประเภทไฟล์ที่รองรับ:**
                     - 📄 ไฟล์ PDF
@@ -570,12 +631,14 @@ def main():
 
         # Footer
         st.markdown(
-            '<div class="footer">Created by Arnutt Noitumyae, 2024 | Updated with Gemini & FAISS</div>',
+            '<div class="footer">Created by Arnutt Noitumyae, 2024 | Optimized with Gemini & FAISS</div>',
             unsafe_allow_html=True
         )
         
     except Exception as e:
         st.error(f"Application error: {str(e)}")
+        if st.session_state.debug_mode:
+            st.code(str(e))
         st.info("Please refresh the page and try again.")
 
 if __name__ == "__main__":
