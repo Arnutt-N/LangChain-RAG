@@ -31,10 +31,9 @@ try:
         except ImportError:
             from langchain.text_splitter import CharacterTextSplitter
     
-    from langchain_community.vectorstores import Chroma
+    # Use FAISS instead of ChromaDB for better compatibility
+    from langchain_community.vectorstores import FAISS
     import tempfile
-    import chromadb
-    from chromadb.config import Settings
     
 except ImportError as e:
     st.error(f"Import error: {e}")
@@ -79,7 +78,7 @@ translations = {
         "thinking": "🧠 Thinking...",
         "language": "🌐 Language / ภาษา",
         "clear_chat": "🗑️ Clear Chat",
-        "model_info": "🤖 **Model:** Gemini Pro | 📊 **Embedding:** Sentence Transformers | 🗃️ **Vector DB:** ChromaDB",
+        "model_info": "🤖 **Model:** Gemini Pro | 📊 **Embedding:** Sentence Transformers | 🗃️ **Vector DB:** FAISS",
         "no_documents": "📄 No documents uploaded yet. Please upload some documents to start chatting!",
         "error_processing": "❌ Error processing documents. Please try again.",
         "error_response": "🚨 Sorry, I encountered an error while generating response.",
@@ -97,7 +96,7 @@ translations = {
         "thinking": "🧠 กำลังคิด...",
         "language": "🌐 ภาษา / Language",
         "clear_chat": "🗑️ ล้างการแชท",
-        "model_info": "🤖 **โมเดล:** Gemini Pro | 📊 **Embedding:** Sentence Transformers | 🗃️ **Vector DB:** ChromaDB",
+        "model_info": "🤖 **โมเดล:** Gemini Pro | 📊 **Embedding:** Sentence Transformers | 🗃️ **Vector DB:** FAISS",
         "no_documents": "📄 ยังไม่มีเอกสารอัปโหลด กรุณาอัปโหลดเอกสารเพื่อเริ่มแชท!",
         "error_processing": "❌ เกิดข้อผิดพลาดในการประมวลผลเอกสาร กรุณาลองใหม่อีกครั้ง",
         "error_response": "🚨 ขออภัย เกิดข้อผิดพลาดในการสร้างคำตอบ",
@@ -116,8 +115,6 @@ if "language" not in st.session_state:
     st.session_state.language = "en"
 if "uploaded_files" not in st.session_state:
     st.session_state.uploaded_files = []
-if "chroma_client" not in st.session_state:
-    st.session_state.chroma_client = None
 if "documents_processed" not in st.session_state:
     st.session_state.documents_processed = False
 
@@ -152,54 +149,16 @@ def should_ignore(filename, patterns):
 def get_embeddings():
     """Initialize and cache embeddings with fallback options"""
     try:
-        # Try BGE-M3 first
-        model_name = "BAAI/bge-m3"
-        model_kwargs = {'device': 'cpu'}
-        encode_kwargs = {'normalize_embeddings': True}
-        
+        # Try smaller, more reliable model first for Streamlit Cloud
         embeddings = HuggingFaceEmbeddings(
-            model_name=model_name,
-            model_kwargs=model_kwargs,
-            encode_kwargs=encode_kwargs
+            model_name="sentence-transformers/all-MiniLM-L6-v2",
+            model_kwargs={'device': 'cpu'},
+            encode_kwargs={'normalize_embeddings': True}
         )
         return embeddings
     except Exception as e:
-        st.warning(f"BGE-M3 not available, trying fallback: {str(e)}")
-        # Fallback to a smaller, more reliable model
-        try:
-            embeddings = HuggingFaceEmbeddings(
-                model_name="sentence-transformers/all-MiniLM-L6-v2",
-                model_kwargs={'device': 'cpu'},
-                encode_kwargs={'normalize_embeddings': True}
-            )
-            return embeddings
-        except Exception as e2:
-            st.error(f"Error with fallback embeddings: {str(e2)}")
-            return None
-
-# Initialize ChromaDB client with fallback
-@st.cache_resource
-def get_chroma_client():
-    """Initialize and cache ChromaDB client with fallback"""
-    try:
-        # Try persistent client first
-        client = chromadb.PersistentClient(
-            path="./chroma_db",
-            settings=Settings(
-                anonymized_telemetry=False,
-                allow_reset=True
-            )
-        )
-        return client
-    except Exception as e:
-        st.warning(f"Persistent ChromaDB not available, using in-memory: {str(e)}")
-        # Fallback to in-memory client
-        try:
-            client = chromadb.Client()
-            return client
-        except Exception as e2:
-            st.error(f"Error with fallback ChromaDB: {str(e2)}")
-            return None
+        st.error(f"Error initializing embeddings: {str(e)}")
+        return None
 
 # Load documents with comprehensive error handling
 def load_documents(file_paths, uploaded_files):
@@ -269,7 +228,7 @@ def load_documents(file_paths, uploaded_files):
     
     return documents
 
-# Process documents with comprehensive error handling
+# Process documents using FAISS instead of ChromaDB
 def process_documents(documents):
     if not documents:
         return None
@@ -293,27 +252,10 @@ def process_documents(documents):
             st.error("Could not initialize embeddings")
             return None
         
-        # Get ChromaDB client
-        chroma_client = get_chroma_client()
-        if not chroma_client:
-            st.error("Could not initialize ChromaDB")
-            return None
-        
-        # Create collection name
-        collection_name = "rag_documents"
-        
-        # Delete existing collection if it exists
-        try:
-            chroma_client.delete_collection(name=collection_name)
-        except:
-            pass
-        
-        # Create vector store with ChromaDB
-        vectorstore = Chroma.from_documents(
+        # Create vector store with FAISS (more compatible than ChromaDB)
+        vectorstore = FAISS.from_documents(
             documents=texts,
-            embedding=embeddings,
-            client=chroma_client,
-            collection_name=collection_name
+            embedding=embeddings
         )
         
         return vectorstore
@@ -338,7 +280,6 @@ def setup_retrieval_chain(vectorstore):
         
         # Initialize Gemini model with fallback options
         models_to_try = [
-            "gemini-2.0-flash-exp",
             "gemini-1.5-flash",
             "gemini-pro"
         ]
@@ -378,13 +319,6 @@ def clear_uploaded_files():
     st.session_state.uploaded_files = []
     st.session_state.vectorstore = None
     st.session_state.documents_processed = False
-    # Clear ChromaDB collection
-    try:
-        chroma_client = get_chroma_client()
-        if chroma_client:
-            chroma_client.delete_collection(name="rag_documents")
-    except:
-        pass
 
 # Function to refresh local files
 def refresh_local_files():
@@ -636,7 +570,7 @@ def main():
 
         # Footer
         st.markdown(
-            '<div class="footer">Created by Arnutt Noitumyae, 2024 | Updated with Gemini & ChromaDB</div>',
+            '<div class="footer">Created by Arnutt Noitumyae, 2024 | Updated with Gemini & FAISS</div>',
             unsafe_allow_html=True
         )
         
