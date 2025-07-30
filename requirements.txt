@@ -1,42 +1,29 @@
-# ===== FIXED Requirements.txt สำหรับ Streamlit Cloud =====
+# ===== ULTRA LIGHT VERSION (Fallback) =====
 
-# Core Streamlit & Base
 streamlit==1.37.0
 python-dotenv==1.0.1
 
-# Google Gemini (จำเป็น)
+# Google Gemini
 google-generativeai==0.8.3
 langchain-google-genai==1.0.10
 
-# LangChain Core
+# LangChain Core (minimal)
 langchain==0.2.11
 langchain-community==0.2.10
 langchain-core==0.2.24
 langchain-text-splitters==0.2.2
 
-# HuggingFace Embeddings (แก้ไข torch version)
-sentence-transformers==3.0.1
-transformers==4.44.2
-torch==2.4.1
-accelerate==0.34.2
-huggingface-hub==0.25.0
+# Light embedding alternative
+scikit-learn==1.5.1
 
 # ChromaDB
 chromadb==0.5.5
-hnswlib==0.8.0
 
 # Document Processing
 pypdf==4.3.1
-unstructured==0.15.0
-openpyxl==3.1.5
 pandas==2.2.2
-
-# Thai Language (optional - ลบออกหากมี memory issues)
-# pythainlp==5.0.4
+numpy==1.26.4
 
 # Essential Utils
-numpy==1.26.4
 requests==2.32.3
 pydantic==2.8.2
-tqdm==4.66.4
-tenacity==8.5.0
