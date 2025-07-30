@@ -15,7 +15,7 @@ load_dotenv()
 # Set page configuration FIRST
 st.set_page_config(
     layout="wide", 
-    page_title="Gen AI : Advanced RAG Chatbot",
+    page_title="Advanced RAG Chatbot",
     page_icon="🤖",
     initial_sidebar_state="expanded"
 )
@@ -103,6 +103,27 @@ genai.configure(api_key=GOOGLE_API_KEY)
 CACHE_DIR = Path("./vector_cache")
 CACHE_DIR.mkdir(exist_ok=True)
 
+# Global app state file to track initialization across users
+APP_STATE_FILE = Path("./app_state.json")
+
+def get_app_state():
+    """Get global app state"""
+    try:
+        if APP_STATE_FILE.exists():
+            with open(APP_STATE_FILE, 'r') as f:
+                return json.load(f)
+    except:
+        pass
+    return {"initialized": False, "last_load": 0}
+
+def save_app_state(state):
+    """Save global app state"""
+    try:
+        with open(APP_STATE_FILE, 'w') as f:
+            json.dump(state, f)
+    except:
+        pass
+
 # Translations
 translations = {
     "en": {
@@ -121,16 +142,18 @@ translations = {
         "no_documents": "📄 No documents found. Please check the repository or upload files.",
         "error_processing": "❌ Error processing documents. Please try again.",
         "error_response": "🚨 Sorry, I encountered an error while generating response.",
-        "checking_cache": "🔍 Checking cache...",
-        "found_cached": "✅ Found cached vectors",
-        "saving_cache": "💾 Saving to cache...",
+        "checking_cache": "Checking cache...",
+        "found_cached": "Found cached vectors",
+        "saving_cache": "Saving to cache...",
         "local_files": "📁 Local Repository Files",
         "uploaded_files": "📤 Uploaded Files",
         "stats": "Statistics",
         "advanced_features": "Advanced Features",
-        "auto_loaded": "✅ Auto-loaded from repository",
-        "processing_local": "📂 Processing repository files...",
-        "found_local_files": lambda count: f"📁 Found {count} local files in repository",
+        "auto_loaded": "Auto-loaded from repository",
+        "processing_local": "Processing repository files...",
+        "found_local_files": lambda count: f"Found {count} local files in repository",
+        "system_ready": "System initialized and ready!",
+        "loading_complete": "Loading complete",
     },
     "th": {
         "title": "🤖 แชทบอท RAG ขั้นสูง",
@@ -148,16 +171,18 @@ translations = {
         "no_documents": "📄 ไม่พบเอกสาร กรุณาตรวจสอบ repository หรืออัปโหลดไฟล์",
         "error_processing": "❌ เกิดข้อผิดพลาดในการประมวลผลเอกสาร",
         "error_response": "🚨 ขออภัย เกิดข้อผิดพลาดในการสร้างคำตอบ",
-        "checking_cache": "🔍 ตรวจสอบ cache...",
-        "found_cached": "✅ พบ vectors ใน cache",
-        "saving_cache": "💾 บันทึกลง cache...",
+        "checking_cache": "ตรวจสอบ cache...",
+        "found_cached": "พบ vectors ใน cache",
+        "saving_cache": "บันทึกลง cache...",
         "local_files": "📁 ไฟล์ใน Repository",
         "uploaded_files": "📤 ไฟล์ที่อัปโหลด",
         "stats": "สถิติ",
         "advanced_features": "ฟีเจอร์ขั้นสูง",
-        "auto_loaded": "✅ โหลดอัตโนมัติจาก repository",
-        "processing_local": "📂 กำลังประมวลผลไฟล์ใน repository...",
-        "found_local_files": lambda count: f"📁 พบไฟล์ local {count} ไฟล์ใน repository",
+        "auto_loaded": "โหลดอัตโนมัติจาก repository",
+        "processing_local": "กำลังประมวลผลไฟล์ใน repository...",
+        "found_local_files": lambda count: f"พบไฟล์ local {count} ไฟล์ใน repository",
+        "system_ready": "ระบบเริ่มต้นและพร้อมใช้งาน!",
+        "loading_complete": "โหลดเสร็จสิ้น",
     }
 }
 
@@ -180,6 +205,8 @@ def init_session_state():
         "max_tokens": 512,
         "temperature": 0.1,
         "auto_load_attempted": False,
+        "show_loading_messages": True,
+        "initialization_complete": False,
     }
     
     for key, value in defaults.items():
@@ -246,7 +273,7 @@ def scan_local_files():
         local_files = sorted(list(set(local_files)))
         
     except Exception as e:
-        st.warning(f"Error scanning local files: {e}")
+        pass
     
     return local_files
 
@@ -266,11 +293,9 @@ def get_embeddings():
         if len(test_embedding) > 0:
             return embeddings
         else:
-            st.error("❌ Embeddings model failed to generate vectors")
             return None
             
     except Exception as e:
-        st.error(f"Error initializing embeddings: {e}")
         return None
 
 # Enhanced caching system
@@ -331,7 +356,6 @@ def save_vectors_to_cache(vectorstore: FAISS, cache_key: str, file_info: Dict):
         
         return True
     except Exception as e:
-        st.warning(f"Could not save to cache: {e}")
         return False
 
 def load_vectors_from_cache(cache_key: str):
@@ -366,7 +390,6 @@ def load_vectors_from_cache(cache_key: str):
         return vectorstore, metadata
         
     except Exception as e:
-        st.warning(f"Could not load from cache: {e}")
         return None, None
 
 # Enhanced document processing
@@ -390,10 +413,8 @@ def load_single_local_file(filepath: str) -> List[Document]:
                 from langchain_community.document_loaders import UnstructuredWordDocumentLoader
                 loader = UnstructuredWordDocumentLoader(filepath)
             except:
-                st.warning(f"Cannot load .docx file: {filepath}")
                 return []
         else:
-            st.warning(f"Unsupported file type: {file_extension}")
             return []
         
         docs = loader.load()
@@ -418,7 +439,6 @@ def load_single_local_file(filepath: str) -> List[Document]:
         return cleaned_docs
         
     except Exception as e:
-        st.warning(f"Error loading local file {filepath}: {e}")
         return []
 
 def load_single_uploaded_file(uploaded_file) -> List[Document]:
@@ -441,7 +461,6 @@ def load_single_uploaded_file(uploaded_file) -> List[Document]:
             elif file_extension in ['xlsx', 'xls']:
                 loader = UnstructuredExcelLoader(temp_file_path)
             else:
-                st.warning(f"Unsupported file type: {file_extension}")
                 return []
             
             docs = loader.load()
@@ -473,10 +492,9 @@ def load_single_uploaded_file(uploaded_file) -> List[Document]:
                 pass
         
     except Exception as e:
-        st.error(f"Error loading file {uploaded_file.name}: {e}")
         return []
 
-def process_all_documents(local_files: List[str], uploaded_files: List) -> bool:
+def process_all_documents(local_files: List[str], uploaded_files: List, show_progress: bool = True) -> bool:
     """Process all documents with intelligent caching"""
     t = translations[st.session_state.language]
     
@@ -488,22 +506,34 @@ def process_all_documents(local_files: List[str], uploaded_files: List) -> bool:
     cache_key = get_cache_key(local_files, uploaded_files)
     
     # Try to load from cache
-    st.info(f"🔍 {t['checking_cache']}")
+    if show_progress and st.session_state.show_loading_messages:
+        cache_status = st.empty()
+        cache_status.info(f"🔍 {t['checking_cache']}")
+    
     cached_vectorstore, cached_metadata = load_vectors_from_cache(cache_key)
     
     if cached_vectorstore and cached_metadata:
-        st.success(f"✅ {t['found_cached']}")
+        if show_progress and st.session_state.show_loading_messages:
+            cache_status.success(f"✅ {t['found_cached']}")
+            time.sleep(0.5)
+            cache_status.empty()
+        
         st.session_state.vectorstore = cached_vectorstore
         st.session_state.document_chunks = cached_metadata.get("chunks", 0)
         st.session_state.documents_processed = True
         return True
     
+    if show_progress and st.session_state.show_loading_messages:
+        cache_status.empty()
+    
     # Process documents if not in cache
-    st.info(f"📝 {t['processing']}")
+    if show_progress and st.session_state.show_loading_messages:
+        process_status = st.empty()
+        process_status.info(f"📝 {t['processing']}")
     
     all_documents = []
-    progress_bar = st.progress(0)
-    status_text = st.empty()
+    progress_bar = st.progress(0) if show_progress else None
+    status_text = st.empty() if show_progress else None
     
     try:
         total_files_to_process = len(local_files) + len(uploaded_files)
@@ -511,8 +541,10 @@ def process_all_documents(local_files: List[str], uploaded_files: List) -> bool:
         
         # Process local files
         for filepath in local_files:
-            status_text.text(f"Loading local: {os.path.basename(filepath)}...")
-            progress_bar.progress(processed / total_files_to_process * 0.5)
+            if show_progress and status_text:
+                status_text.text(f"Loading local: {os.path.basename(filepath)}...")
+            if progress_bar:
+                progress_bar.progress(processed / total_files_to_process * 0.5)
             
             docs = load_single_local_file(filepath)
             all_documents.extend(docs)
@@ -520,20 +552,23 @@ def process_all_documents(local_files: List[str], uploaded_files: List) -> bool:
         
         # Process uploaded files
         for uploaded_file in uploaded_files:
-            status_text.text(f"Loading uploaded: {uploaded_file.name}...")
-            progress_bar.progress(processed / total_files_to_process * 0.5)
+            if show_progress and status_text:
+                status_text.text(f"Loading uploaded: {uploaded_file.name}...")
+            if progress_bar:
+                progress_bar.progress(processed / total_files_to_process * 0.5)
             
             docs = load_single_uploaded_file(uploaded_file)
             all_documents.extend(docs)
             processed += 1
         
         if not all_documents:
-            st.warning("No documents could be processed")
             return False
         
         # Split documents with updated text splitter
-        status_text.text("🔄 Splitting documents...")
-        progress_bar.progress(0.7)
+        if show_progress and status_text:
+            status_text.text("🔄 Splitting documents...")
+        if progress_bar:
+            progress_bar.progress(0.7)
         
         text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=600,
@@ -544,12 +579,13 @@ def process_all_documents(local_files: List[str], uploaded_files: List) -> bool:
         texts = text_splitter.split_documents(all_documents)
         
         if not texts:
-            st.warning("No text content found after splitting")
             return False
         
         # Create embeddings and vectorstore
-        status_text.text("📊 Creating embeddings...")
-        progress_bar.progress(0.9)
+        if show_progress and status_text:
+            status_text.text("📊 Creating embeddings...")
+        if progress_bar:
+            progress_bar.progress(0.9)
         
         embeddings = get_embeddings()
         if not embeddings:
@@ -558,7 +594,8 @@ def process_all_documents(local_files: List[str], uploaded_files: List) -> bool:
         vectorstore = FAISS.from_documents(texts, embeddings)
         
         # Save to cache
-        status_text.text(f"💾 {t['saving_cache']}")
+        if show_progress and status_text:
+            status_text.text(f"💾 {t['saving_cache']}")
         file_info = {
             "local_files": local_files,
             "uploaded_files": [f.name for f in uploaded_files],
@@ -572,23 +609,36 @@ def process_all_documents(local_files: List[str], uploaded_files: List) -> bool:
         st.session_state.document_chunks = len(texts)
         st.session_state.documents_processed = True
         
-        progress_bar.progress(1.0)
-        progress_bar.empty()
-        status_text.empty()
+        if progress_bar:
+            progress_bar.progress(1.0)
+            time.sleep(0.3)
+            progress_bar.empty()
+        if status_text:
+            status_text.empty()
+        if show_progress and st.session_state.show_loading_messages:
+            process_status.empty()
         
         return True
         
     except Exception as e:
-        if 'progress_bar' in locals():
+        if progress_bar:
             progress_bar.empty()
-        if 'status_text' in locals():
+        if status_text:
             status_text.empty()
-        st.error(f"Error processing documents: {e}")
+        if show_progress and st.session_state.show_loading_messages:
+            process_status.empty()
         return False
 
-# Auto-load local files on startup
+# Auto-load local files on startup with improved UX
 def auto_load_local_files():
-    """Automatically load local files on startup"""
+    """Automatically load local files on startup with better UX"""
+    app_state = get_app_state()
+    
+    # Check if this is a fresh app start (not just a user session)
+    if app_state.get("initialized", False) and (time.time() - app_state.get("last_load", 0)) < 300:  # 5 minutes
+        # App was recently initialized, skip auto-load messages
+        st.session_state.show_loading_messages = False
+    
     if st.session_state.auto_load_attempted:
         return
     
@@ -601,16 +651,34 @@ def auto_load_local_files():
     t = translations[st.session_state.language]
     
     if local_files:
-        st.info(t["found_local_files"](len(local_files)))
+        # Show initial file discovery message only once per app session
+        if st.session_state.show_loading_messages:
+            discovery_msg = st.empty()
+            discovery_msg.success(t["found_local_files"](len(local_files)))
+            time.sleep(1)
         
         # Auto-process if we have local files
-        with st.spinner(t["processing_local"]):
-            success = process_all_documents(local_files, [])
+        with st.spinner(t["processing_local"]) if st.session_state.show_loading_messages else st.empty():
+            success = process_all_documents(local_files, [], show_progress=st.session_state.show_loading_messages)
+            
             if success:
-                st.success(f"✅ {t['auto_loaded']}")
-                st.success(f"📊 Processed {len(local_files)} local files into {st.session_state.document_chunks} chunks!")
+                if st.session_state.show_loading_messages:
+                    completion_msg = st.empty()
+                    completion_msg.success(f"✅ {t['system_ready']}")
+                    time.sleep(1)
+                    completion_msg.empty()
+                    discovery_msg.empty()
+                
+                # Update app state to indicate successful initialization
+                app_state["initialized"] = True
+                app_state["last_load"] = time.time()
+                save_app_state(app_state)
+                
+                # Disable loading messages for subsequent users
+                st.session_state.show_loading_messages = False
+                st.session_state.initialization_complete = True
 
-# Enhanced query processing (same as before)
+# Enhanced query processing
 def setup_advanced_retrieval_chain():
     """Setup retrieval chain with advanced features"""
     try:
@@ -652,7 +720,6 @@ def setup_advanced_retrieval_chain():
         return qa_chain
         
     except Exception as e:
-        st.error(f"Error setting up retrieval chain: {e}")
         return None
 
 def query_with_analytics(chain, question: str) -> Dict[str, Any]:
@@ -762,7 +829,7 @@ def cleanup_cache():
                 except:
                     continue
     except Exception as e:
-        st.warning(f"Error cleaning cache: {e}")
+        pass
 
 # Main application
 def main():
@@ -773,29 +840,68 @@ def main():
 
         t = translations[st.session_state.language]
 
-        if not st.session_state.app_initialized:
-            st.session_state.app_initialized = True
-            cleanup_cache()
-
-        # Enhanced CSS
+        # Enhanced CSS with better styling
         st.markdown("""
             <style>
             .main .block-container {
                 max-width: 1200px;
-                padding-top: 2rem;
+                padding-top: 1rem;
                 padding-bottom: 3rem;
             }
             .stTitle {
                 text-align: center;
                 color: #1f77b4;
-                margin-bottom: 2rem;
+                margin-bottom: 1.5rem;
+                font-size: 2.5rem !important;
+                font-weight: 700;
+                background: linear-gradient(90deg, #1f77b4, #2ca02c);
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+                background-clip: text;
             }
             .metric-card {
-                background-color: #f8f9fa;
+                background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
                 border: 1px solid #dee2e6;
-                border-radius: 8px;
-                padding: 1rem;
+                border-radius: 12px;
+                padding: 1.2rem;
                 margin: 0.5rem 0;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }
+            .model-info {
+                background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+                border-left: 4px solid #2196f3;
+                padding: 1rem;
+                border-radius: 8px;
+                margin: 1rem 0;
+                font-size: 0.95rem;
+            }
+            .chat-container {
+                background: #fafafa;
+                border-radius: 12px;
+                padding: 1rem;
+                margin-top: 1rem;
+            }
+            .welcome-card {
+                background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%);
+                border: 2px solid #ff9800;
+                border-radius: 16px;
+                padding: 2rem;
+                margin: 2rem 0;
+                text-align: center;
+                box-shadow: 0 4px 12px rgba(255, 152, 0, 0.2);
+            }
+            .status-badge {
+                display: inline-block;
+                padding: 0.3rem 0.8rem;
+                border-radius: 20px;
+                font-size: 0.8rem;
+                font-weight: 600;
+                margin: 0.2rem;
+            }
+            .status-ready {
+                background-color: #d4edda;
+                color: #155724;
+                border: 1px solid #c3e6cb;
             }
             .footer {
                 position: fixed;
@@ -810,12 +916,23 @@ def main():
                 width: 100%;
                 border-top: 1px solid #eee;
                 z-index: 999;
+                font-weight: 500;
             }
             </style>
         """, unsafe_allow_html=True)
 
-        # Auto-load local files on first run
+        # Title first - prominent display
+        st.markdown(f'<h1 class="stTitle">{t["title"]}</h1>', unsafe_allow_html=True)
+
+        if not st.session_state.app_initialized:
+            st.session_state.app_initialized = True
+            cleanup_cache()
+
+        # Auto-load local files on first run with improved UX
         auto_load_local_files()
+
+        # Model info with better styling
+        st.markdown(f'<div class="model-info">{t["model_info"]}</div>', unsafe_allow_html=True)
 
         # Sidebar
         with st.sidebar:
@@ -843,6 +960,9 @@ def main():
                 st.session_state.auto_load_attempted = False
                 st.session_state.documents_processed = False
                 st.session_state.vectorstore = None
+                st.session_state.show_loading_messages = True
+                # Reset app state to allow messages to show again
+                save_app_state({"initialized": False, "last_load": 0})
                 st.rerun()
 
             # File uploader
@@ -858,7 +978,7 @@ def main():
             if uploaded_files and uploaded_files != st.session_state.uploaded_files:
                 st.session_state.uploaded_files = uploaded_files
                 with st.spinner(t["processing"]):
-                    success = process_all_documents(st.session_state.local_files, uploaded_files)
+                    success = process_all_documents(st.session_state.local_files, uploaded_files, show_progress=True)
                     if success:
                         st.success(t["upload_success"](len(uploaded_files)))
                     else:
@@ -900,16 +1020,23 @@ def main():
                         st.session_state.vectorstore = None
                         st.session_state.documents_processed = False
                         st.session_state.auto_load_attempted = False
+                        st.session_state.show_loading_messages = True
+                        # Reset app state
+                        save_app_state({"initialized": False, "last_load": 0})
                         st.success("✅ Cache cleared!")
                     except Exception as e:
                         st.error(f"Error clearing cache: {e}")
 
         # Main content
-        st.title(t["title"])
-        st.info(t["model_info"])
-
-        # Chat interface
         if st.session_state.documents_processed:
+            # Status indicator
+            if st.session_state.initialization_complete:
+                st.markdown(f'<span class="status-badge status-ready">✅ {t["system_ready"]}</span>', unsafe_allow_html=True)
+                st.markdown("<br>", unsafe_allow_html=True)
+
+            # Chat interface in container
+            st.markdown('<div class="chat-container">', unsafe_allow_html=True)
+            
             # Display chat messages
             for message in st.session_state.messages:
                 with st.chat_message(message["role"]):
@@ -963,10 +1090,17 @@ def main():
                                     st.error(f"🚨 Error: {str(e)}")
                     else:
                         st.error("⚠️ Could not set up the retrieval system.")
+            
+            st.markdown('</div>', unsafe_allow_html=True)
 
         else:
-            # Welcome message
-            st.markdown(f"### {t['welcome']}")
+            # Welcome message with enhanced styling
+            st.markdown(f"""
+                <div class="welcome-card">
+                    <h3>👋 {t['welcome']}</h3>
+                    <p>System is ready for document-based conversations!</p>
+                </div>
+            """, unsafe_allow_html=True)
             
             with st.expander("ℹ️ How to use / วิธีใช้งาน", expanded=True):
                 if st.session_state.language == "en":
@@ -1040,11 +1174,11 @@ def main():
             if total_files == 0:
                 st.info(t["no_documents"])
             else:
-                st.info(f"📁 Found {len(st.session_state.local_files)} local files. Click 'Reload Local Files' if files were added recently.")
+                st.info(f"📁 Found {len(st.session_state.local_files)} local files. Ready to chat!")
 
         # Footer
         st.markdown(
-            '<div class="footer">Advanced RAG Chatbot v2.0 with Auto-Load | Created by Arnutt Noitumyae, 2024</div>',
+            '<div class="footer">🤖 Advanced RAG Chatbot v2.1 | Enhanced UX/UI | Created by Arnutt Noitumyae, 2024</div>',
             unsafe_allow_html=True
         )
         
