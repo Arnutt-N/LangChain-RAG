@@ -1082,6 +1082,26 @@ def main():
         # Model info with better styling
         st.markdown(f'<div class="model-info">{t["model_info"]}</div>', unsafe_allow_html=True)
 
+        # Document loading status
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            if st.session_state.local_files:
+                st.success(f"📁 {len(st.session_state.local_files)} local files found")
+            else:
+                st.info("📁 No local files")
+                
+        with col2:
+            if st.session_state.documents_processed and st.session_state.vectorstore:
+                st.success(f"🗃️ Vector DB ready ({st.session_state.document_chunks} chunks)")
+            else:
+                st.warning("🗃️ Vector DB not ready")
+                
+        with col3:
+            if st.session_state.initialization_complete:
+                st.success("✅ System ready")
+            else:
+                st.info("⏳ Loading...")
+
         # Sidebar
         with st.sidebar:
             # Language selection
@@ -1166,6 +1186,31 @@ def main():
             # Advanced settings
             display_advanced_settings()
 
+            # Debug information
+            if st.session_state.debug_mode and st.session_state.documents_processed:
+                with st.expander("🔍 Debug Information"):
+                    st.write(f"**Documents Status:**")
+                    st.write(f"- Local files: {len(st.session_state.local_files)}")
+                    st.write(f"- Uploaded files: {len(st.session_state.uploaded_files)}")
+                    st.write(f"- Document chunks: {st.session_state.document_chunks}")
+                    st.write(f"- Vector store: {'✅ Ready' if st.session_state.vectorstore else '❌ Not ready'}")
+                    st.write(f"- Initialization complete: {'✅ Yes' if st.session_state.initialization_complete else '❌ No'}")
+                    st.write(f"- Search history: {len(st.session_state.search_history)} queries")
+                    
+                    cache_files = list(CACHE_DIR.glob("vectors_*"))
+                    st.write(f"- Cache files: {len(cache_files)}")
+                    
+                    if st.session_state.vectorstore:
+                        st.write(f"**Vector Database Info:**")
+                        try:
+                            # Get some basic info about the vectorstore
+                            st.write(f"- Vector store type: {type(st.session_state.vectorstore).__name__}")
+                            # Try to get index info
+                            if hasattr(st.session_state.vectorstore, 'index'):
+                                st.write(f"- Index size: {st.session_state.vectorstore.index.ntotal if hasattr(st.session_state.vectorstore.index, 'ntotal') else 'Unknown'}")
+                        except Exception as e:
+                            st.write(f"- Vector store info: {str(e)}")
+
             # Statistics
             if st.session_state.debug_mode and st.session_state.documents_processed:
                 st.markdown(f'<div class="emoji-text"><span class="emoji-inline">📊</span><span class="bold-text">{t["stats"]}</span></div>', unsafe_allow_html=True)
@@ -1200,10 +1245,6 @@ def main():
 
         # Main content
         if st.session_state.documents_processed:
-            # Status indicator - show only after everything is ready
-            if st.session_state.initialization_complete:
-                st.success(f"✅ {t['system_ready']}")
-
             # Chat interface in container
             st.markdown('<div class="chat-container">', unsafe_allow_html=True)
             
@@ -1262,19 +1303,81 @@ def main():
                         st.error("⚠️ Could not set up the retrieval system.")
             
             st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        # Always show chat input at the bottom regardless of document state
+        st.markdown('<div style="margin-top: 2rem; min-height: 100px;"></div>', unsafe_allow_html=True)
+        
+        # Global chat input - always visible
+        placeholder_text = t["ask_placeholder"] if st.session_state.documents_processed else "Upload documents first or wait for auto-loading to complete..."
+        if prompt := st.chat_input(placeholder_text):
+            if not st.session_state.documents_processed:
+                st.error("❌ No documents loaded. Please wait for auto-loading to complete or upload files manually.")
+                time.sleep(2)
+                st.rerun()
+            else:
+                # Add user message
+                st.session_state.messages.append({"role": "user", "content": prompt})
+                with st.chat_message("user"):
+                    st.markdown(prompt)
+
+                # Generate response
+                with st.chat_message("assistant"):
+                    retrieval_chain = setup_advanced_retrieval_chain()
+                    if retrieval_chain:
+                        with st.spinner(t["thinking"]):
+                            try:
+                                response = query_with_analytics(retrieval_chain, prompt)
+                                answer = response.get('answer', 'No answer generated')
+                                
+                                st.markdown(answer)
+                                st.session_state.messages.append({"role": "assistant", "content": answer})
+                                
+                                # Enhanced source display
+                                if 'source_documents' in response and response['source_documents']:
+                                    with st.expander(f"📚 Sources ({len(response['source_documents'])})"):
+                                        for i, doc in enumerate(response['source_documents']):
+                                            st.markdown(f'<span class="bold-text">Source {i+1}:</span>', unsafe_allow_html=True)
+                                            content = doc.page_content[:300] + "..." if len(doc.page_content) > 300 else doc.page_content
+                                            st.markdown(content)
+                                            
+                                            if hasattr(doc, 'metadata') and doc.metadata:
+                                                meta = doc.metadata
+                                                source_type = "📁 Local" if meta.get('file_type') == 'local' else "📤 Uploaded"
+                                                st.caption(f"{source_type}: {meta.get('source_file', 'Unknown')}")
+                                                if st.session_state.debug_mode:
+                                                    st.caption(f"🔢 Chunk: {meta.get('chunk_id', 'N/A')} | Length: {meta.get('content_length', 'N/A')}")
+                                            st.markdown("---")
+                                
+                                # Query analytics
+                                if st.session_state.debug_mode:
+                                    st.caption(f"⏱️ Query time: {response.get('query_time', 0):.2f}s")
+                                
+                            except TimeoutError:
+                                st.error("⏱️ Request timed out. Please try a shorter question.")
+                            except Exception as e:
+                                if "RATE_LIMIT" in str(e):
+                                    st.error("⏳ API rate limit reached. Please wait and try again.")
+                                else:
+                                    st.error(f"🚨 Error: {str(e)}")
+                    else:
+                        st.error("⚠️ Could not set up the retrieval system.")
             
-            # Ensure chat input area is always available
-            st.markdown('<div style="min-height: 80px;"></div>', unsafe_allow_html=True)
+            # Rerun to update chat display
+            st.rerun()
 
         else:
-            # Welcome message with enhanced styling
-            st.markdown(f"""
-                <div class="welcome-card">
-                    <h3>{t['welcome']}</h3>
-                    <p>System is ready for document-based conversations!</p>
-                </div>
-            """, unsafe_allow_html=True)
+            # Simple info without welcome card
+            st.info("📄 No documents processed yet. System is loading or waiting for file upload.")
             
+            # Show loading progress
+            if st.session_state.auto_load_attempted and not st.session_state.documents_processed:
+                if st.session_state.local_files:
+                    st.warning(f"⚠️ Found {len(st.session_state.local_files)} local files but processing failed. Try reloading.")
+                else:
+                    st.info("💡 No local files found. Upload documents using the sidebar.")
+            
+            # Help section
             with st.expander("ℹ️ How to use / วิธีใช้งาน", expanded=False):
                 if st.session_state.language == "en":
                     st.markdown("""
@@ -1343,14 +1446,19 @@ def main():
                     - 📄 เอกสาร Word (.docx)
                     """, unsafe_allow_html=True)
 
-            total_files = len(st.session_state.local_files) + len(st.session_state.uploaded_files)
-            if total_files == 0:
-                st.info(t["no_documents"])
+        # Always show chat input area at the bottom
+        st.markdown('<div style="margin-top: 2rem;"></div>', unsafe_allow_html=True)
+        
+        # Chat input should always be visible
+        if prompt := st.chat_input(t["ask_placeholder"] if st.session_state.documents_processed else "Upload documents first or wait for auto-loading..."):
+            if not st.session_state.documents_processed:
+                st.warning("⚠️ Please wait for documents to be processed or upload files first.")
+                st.rerun()
             else:
-                st.info(f"📁 Found {len(st.session_state.local_files)} local files. Ready to chat!")
-            
-            # Make sure chat input is always visible when no documents are processed
-            st.markdown('<div style="height: 60px;"></div>', unsafe_allow_html=True)  # Spacer for chat input
+                # Process chat normally (this code won't execute in welcome state)
+                st.session_state.messages.append({"role": "user", "content": prompt})
+                with st.chat_message("user"):
+                    st.markdown(prompt)
 
         # Footer removed - cleaner interface
         
