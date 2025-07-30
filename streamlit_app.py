@@ -538,16 +538,17 @@ def process_all_documents(local_files: List[str], uploaded_files: List, show_pro
     
     # Try to load from cache
     if show_progress and st.session_state.show_loading_messages:
-        cache_status = st.empty()
-        cache_status.info(f"🔍 {t['checking_cache']}")
+        cache_placeholder = st.empty()
+        cache_placeholder.info(f"🔍 {t['checking_cache']}")
     
     cached_vectorstore, cached_metadata = load_vectors_from_cache(cache_key)
     
     if cached_vectorstore and cached_metadata:
         if show_progress and st.session_state.show_loading_messages:
-            cache_status.success(f"✅ {t['found_cached']}")
-            time.sleep(0.5)
-            cache_status.empty()
+            cache_placeholder.success(f"✅ {t['found_cached']}")
+            # Small delay to show the message, then clear
+            time.sleep(0.3)
+            cache_placeholder.empty()
         
         st.session_state.vectorstore = cached_vectorstore
         st.session_state.document_chunks = cached_metadata.get("chunks", 0)
@@ -555,16 +556,15 @@ def process_all_documents(local_files: List[str], uploaded_files: List, show_pro
         return True
     
     if show_progress and st.session_state.show_loading_messages:
-        cache_status.empty()
+        cache_placeholder.empty()
     
     # Process documents if not in cache
     if show_progress and st.session_state.show_loading_messages:
-        process_status = st.empty()
-        process_status.info(f"📝 {t['processing']}")
+        st.info(f"📝 {t['processing']}")
     
     all_documents = []
-    progress_bar = st.progress(0) if show_progress else None
-    status_text = st.empty() if show_progress else None
+    progress_bar = st.progress(0) if show_progress and st.session_state.show_loading_messages else None
+    status_text = st.empty() if show_progress and st.session_state.show_loading_messages else None
     
     try:
         total_files_to_process = len(local_files) + len(uploaded_files)
@@ -684,27 +684,20 @@ def auto_load_local_files():
     if local_files:
         # Show initial file discovery message only once per app session
         if st.session_state.show_loading_messages:
-            discovery_msg = st.empty()
-            discovery_msg.info(t["found_local_files"](len(local_files)))
-            time.sleep(1)
+            st.info(t["found_local_files"](len(local_files)))
         
         # Auto-process if we have local files
-        with st.spinner(t["processing_local"]) if st.session_state.show_loading_messages else st.empty():
-            success = process_all_documents(local_files, [], show_progress=st.session_state.show_loading_messages)
+        success = process_all_documents(local_files, [], show_progress=st.session_state.show_loading_messages)
+        
+        if success:
+            # Update app state to indicate successful initialization
+            app_state["initialized"] = True
+            app_state["last_load"] = time.time()
+            save_app_state(app_state)
             
-            if success:
-                if st.session_state.show_loading_messages:
-                    # Clear the discovery message before showing completion
-                    discovery_msg.empty()
-                
-                # Update app state to indicate successful initialization
-                app_state["initialized"] = True
-                app_state["last_load"] = time.time()
-                save_app_state(app_state)
-                
-                # Disable loading messages for subsequent users
-                st.session_state.show_loading_messages = False
-                st.session_state.initialization_complete = True
+            # Disable loading messages for subsequent users
+            st.session_state.show_loading_messages = False
+            st.session_state.initialization_complete = True
 
 # Custom Mistral LangChain wrapper
 class MistralLLM:
@@ -1044,6 +1037,10 @@ def main():
                 background-color: #d4edda;
                 color: #155724;
                 border: 1px solid #c3e6cb;
+                padding: 0.5rem 1rem;
+                border-radius: 6px;
+                margin: 1rem 0;
+                font-weight: 600;
             }
             .footer {
                 display: none; /* ซ่อนฟุตเตอร์ */
