@@ -39,9 +39,9 @@ def check_dependencies():
             from mistralai import Mistral
         except ImportError:
             pass  # Mistral is optional
-        # ChromaDB is required
-        import chromadb
-        from langchain_community.vectorstores import Chroma
+        # FAISS is required (lighter alternative to ChromaDB)
+        import faiss
+        from langchain_community.vectorstores import FAISS
     except ImportError as e:
         missing_package = str(e).split("'")[1] if "'" in str(e) else str(e)
         missing_packages.append(missing_package)
@@ -55,7 +55,10 @@ if missing_deps:
     st.info("""
     Please install with:
     ```bash
-    pip install -r requirements.txt
+    pip install streamlit langchain-google-genai langchain-huggingface langchain-community 
+    pip install faiss-cpu  # For CPU version, or faiss-gpu for GPU
+    pip install google-generativeai mistralai python-dotenv
+    pip install pypdf unstructured[xlsx] openpyxl
     ```
     """)
     st.stop()
@@ -84,17 +87,16 @@ try:
         MISTRAL_AVAILABLE = True
     except ImportError:
         MISTRAL_AVAILABLE = False
-        # Don't show notification here - will show later in proper order
     
-    # ChromaDB import - required
+    # FAISS import - required (replacing ChromaDB)
     try:
-        import chromadb
-        from langchain_community.vectorstores import Chroma
-        CHROMADB_AVAILABLE = True
+        import faiss
+        from langchain_community.vectorstores import FAISS
+        FAISS_AVAILABLE = True
     except ImportError:
-        CHROMADB_AVAILABLE = False
-        st.error("❌ ChromaDB is required but not installed!")
-        st.info("Please install ChromaDB: `pip install chromadb`")
+        FAISS_AVAILABLE = False
+        st.error("❌ FAISS is required but not installed!")
+        st.info("Please install FAISS: `pip install faiss-cpu`")
         st.stop()
     
 except ImportError as e:
@@ -180,7 +182,7 @@ translations = {
         "clear_chat": "🗑️ Clear Chat",
         "clear_cache": "🗑️ Clear Cache",
         "reload_local": "🔄 Reload Local Files",
-        "model_info": '<span class="emoji">🤖</span><span class="bold-text">Model:</span> Gemini Pro / Mistral Large | <span class="emoji">📊</span><span class="bold-text">Embedding:</span> MiniLM-L6-v2 | <span class="emoji">🗃️</span><span class="bold-text">Vector DB:</span> ChromaDB',
+        "model_info": '<span class="emoji">🤖</span><span class="bold-text">Model:</span> Gemini Pro / Mistral Large | <span class="emoji">📊</span><span class="bold-text">Embedding:</span> MiniLM-L6-v2 | <span class="emoji">🗃️</span><span class="bold-text">Vector DB:</span> FAISS',
         "no_documents": "📄 No documents found. Please check the repository or upload files.",
         "error_processing": "❌ Error processing documents. Please try again.",
         "error_response": "🚨 Sorry, I encountered an error while generating response.",
@@ -209,7 +211,7 @@ translations = {
         "clear_chat": "🗑️ ล้างการแชท",
         "clear_cache": "🗑️ ล้าง Cache",
         "reload_local": "🔄 โหลดไฟล์ local ใหม่",
-        "model_info": '<span class="emoji">🤖</span><span class="bold-text">โมเดล:</span> Gemini Pro / Mistral Large | <span class="emoji">📊</span><span class="bold-text">Embedding:</span> MiniLM-L6-v2 | <span class="emoji">🗃️</span><span class="bold-text">Vector DB:</span> ChromaDB',
+        "model_info": '<span class="emoji">🤖</span><span class="bold-text">โมเดล:</span> Gemini Pro / Mistral Large | <span class="emoji">📊</span><span class="bold-text">Embedding:</span> MiniLM-L6-v2 | <span class="emoji">🗃️</span><span class="bold-text">Vector DB:</span> FAISS',
         "no_documents": "📄 ไม่พบเอกสาร กรุณาตรวจสอบ repository หรืออัปโหลดไฟล์",
         "error_processing": "❌ เกิดข้อผิดพลาดในการประมวลผลเอกสาร",
         "error_response": "🚨 ขออภัย เกิดข้อผิดพลาดในการสร้างคำตอบ",
@@ -250,7 +252,7 @@ def init_session_state():
         "show_loading_messages": True,
         "initialization_complete": False,
         "selected_model": "gemini", # Default model
-        "selected_vector_db": "chromadb", # Use ChromaDB only
+        "selected_vector_db": "faiss", # Use FAISS only
     }
     
     for key, value in defaults.items():
@@ -301,7 +303,6 @@ def scan_local_files():
     ignore_patterns = load_gitignore_patterns()
     
     try:
-        # Debug: Show current directory
         current_dir = os.getcwd()
         
         # Scan current directory and subdirectories
@@ -377,25 +378,28 @@ def get_cache_key(local_files: List[str], uploaded_files: List) -> str:
         except:
             continue
     
-    # ChromaDB identifier
-    file_hashes["vector_db"] = "chromadb"
+    # FAISS identifier
+    file_hashes["vector_db"] = "faiss"
     
     cache_string = json.dumps(sorted(file_hashes.items()), sort_keys=True)
     return hashlib.md5(cache_string.encode()).hexdigest()[:16]
 
 def save_vectors_to_cache(vectorstore, cache_key: str, file_info: Dict):
-    """Save ChromaDB vectorstore metadata to cache"""
+    """Save FAISS vectorstore to cache"""
     try:
         cache_path = CACHE_DIR / f"vectors_{cache_key}"
         cache_path.mkdir(exist_ok=True)
         
-        # ChromaDB persists automatically, just save metadata
+        # Save FAISS index
+        vectorstore.save_local(str(cache_path))
+        
+        # Save metadata
         metadata = {
             "file_info": file_info,
             "timestamp": time.time(),
             "cache_key": cache_key,
             "chunks": st.session_state.document_chunks,
-            "vector_db_type": "chromadb"
+            "vector_db_type": "faiss"
         }
         
         with open(cache_path / "metadata.json", "w", encoding='utf-8') as f:
@@ -406,7 +410,7 @@ def save_vectors_to_cache(vectorstore, cache_key: str, file_info: Dict):
         return False
 
 def load_vectors_from_cache(cache_key: str):
-    """Load ChromaDB vectorstore from cache"""
+    """Load FAISS vectorstore from cache"""
     try:
         cache_path = CACHE_DIR / f"vectors_{cache_key}"
         metadata_path = cache_path / "metadata.json"
@@ -427,55 +431,28 @@ def load_vectors_from_cache(cache_key: str):
         if not embeddings:
             return None, None
         
-        # Load ChromaDB
-        chroma_client = chromadb.PersistentClient(path="./chroma_db")
-        collection_name = "rag_documents"
+        # Load FAISS index
+        vectorstore = FAISS.load_local(
+            str(cache_path), 
+            embeddings, 
+            allow_dangerous_deserialization=True
+        )
         
-        try:
-            vectorstore = Chroma(
-                client=chroma_client,
-                collection_name=collection_name,
-                embedding_function=embeddings,
-                persist_directory="./chroma_db"
-            )
-            return vectorstore, metadata
-        except:
-            return None, None
+        return vectorstore, metadata
         
     except Exception as e:
         return None, None
 
-# Enhanced document processing
-# Enhanced document processing with ChromaDB
-def create_chromadb_vectorstore(texts, embeddings, collection_name="rag_documents"):
-    """Create ChromaDB vector store from texts"""
+# Enhanced document processing with FAISS
+def create_faiss_vectorstore(texts, embeddings):
+    """Create FAISS vector store from texts"""
     try:
-        # ChromaDB setup
-        chroma_client = chromadb.PersistentClient(path="./chroma_db")
-        
-        # Create or get collection
-        try:
-            collection = chroma_client.get_collection(collection_name)
-            # Delete existing collection to start fresh
-            chroma_client.delete_collection(collection_name)
-        except:
-            pass
-        
-        # Create new collection
-        vectorstore = Chroma(
-            client=chroma_client,
-            collection_name=collection_name,
-            embedding_function=embeddings,
-            persist_directory="./chroma_db"
-        )
-        
-        # Add documents to ChromaDB
-        vectorstore.add_documents(texts)
-        
+        # Create FAISS vectorstore
+        vectorstore = FAISS.from_documents(texts, embeddings)
         return vectorstore
         
     except Exception as e:
-        st.error(f"Error creating ChromaDB vector store: {e}")
+        st.error(f"Error creating FAISS vector store: {e}")
         return None
 
 def load_single_local_file(filepath: str) -> List[Document]:
@@ -493,7 +470,6 @@ def load_single_local_file(filepath: str) -> List[Document]:
         elif file_extension in ['.xlsx', '.xls']:
             loader = UnstructuredExcelLoader(filepath)
         elif file_extension == '.docx':
-            # Try to load docx if available
             try:
                 from langchain_community.document_loaders import UnstructuredWordDocumentLoader
                 loader = UnstructuredWordDocumentLoader(filepath)
@@ -600,7 +576,6 @@ def process_all_documents(local_files: List[str], uploaded_files: List, show_pro
     if cached_vectorstore and cached_metadata:
         if show_progress and st.session_state.show_loading_messages:
             cache_placeholder.success(f"✅ {t['found_cached']}")
-            # Small delay to show the message, then clear
             time.sleep(0.3)
             cache_placeholder.empty()
         
@@ -676,8 +651,8 @@ def process_all_documents(local_files: List[str], uploaded_files: List, show_pro
         if not embeddings:
             return False
         
-        # Create ChromaDB vector store
-        vectorstore = create_chromadb_vectorstore(texts, embeddings)
+        # Create FAISS vector store
+        vectorstore = create_faiss_vectorstore(texts, embeddings)
         
         if not vectorstore:
             return False
@@ -700,7 +675,6 @@ def process_all_documents(local_files: List[str], uploaded_files: List, show_pro
         
         if progress_bar:
             progress_bar.progress(1.0)
-            # Small delay then clean up
             time.sleep(0.2)
             progress_bar.empty()
         if status_text:
@@ -979,13 +953,13 @@ def main():
             <style>
             .main .block-container {
                 max-width: 1200px;
-                padding-top: 4rem; /* เพิ่มพื้นที่ด้านบนให้หลบ navbar */
-                padding-bottom: 2rem; /* ลดพื้นที่ด้านล่าง เนื่องจากไม่มีฟุตเตอร์ */
+                padding-top: 4rem;
+                padding-bottom: 2rem;
             }
             @media (max-width: 768px) {
                 .main .block-container {
-                    padding-top: 3.5rem; /* ลดลงเล็กน้อยในมือถือ */
-                    padding-bottom: 2rem; /* ลดพื้นที่ในมือถือ */
+                    padding-top: 3.5rem;
+                    padding-bottom: 2rem;
                     padding-left: 1rem;
                     padding-right: 1rem;
                 }
@@ -993,29 +967,29 @@ def main():
             .stTitle {
                 text-align: center;
                 color: #1f77b4;
-                margin-top: 1.5rem; /* เพิ่ม margin-top ให้หลบ navbar */
+                margin-top: 1.5rem;
                 margin-bottom: 2rem;
                 font-size: 2.5rem !important;
                 font-weight: 700;
                 line-height: 1.4 !important;
-                padding: 1rem 0; /* เพิ่ม padding ด้านบนและล่าง */
+                padding: 1rem 0;
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                min-height: 5rem; /* เพิ่มความสูงขั้นต่ำ */
+                min-height: 5rem;
                 position: relative;
-                z-index: 10; /* ให้อยู่เหนือ element อื่น */
+                z-index: 10;
             }
             .title-emoji {
-                font-size: 3.2rem; /* เพิ่มขนาดเล็กน้อย */
+                font-size: 3.2rem;
                 margin-right: 0.6rem;
                 filter: none;
                 background: none;
                 line-height: 1;
                 display: inline-block;
                 vertical-align: middle;
-                padding: 0.3rem; /* เพิ่ม padding */
-                margin-top: -0.2rem; /* ปรับตำแหน่งให้ตรงกลาง */
+                padding: 0.3rem;
+                margin-top: -0.2rem;
             }
             .title-text {
                 background: linear-gradient(90deg, #1f77b4, #2ca02c);
@@ -1023,10 +997,10 @@ def main():
                 -webkit-text-fill-color: transparent;
                 background-clip: text;
                 font-weight: 700;
-                line-height: 1.3; /* ปรับ line-height */
+                line-height: 1.3;
                 display: inline-block;
                 vertical-align: middle;
-                padding: 0.2rem 0; /* เพิ่ม padding */
+                padding: 0.2rem 0;
             }
             .metric-card {
                 background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
@@ -1065,12 +1039,12 @@ def main():
                 border-radius: 12px;
                 padding: 1rem;
                 margin-top: 1rem;
-                margin-bottom: 1rem; /* ลดระยะห่างด้านล่าง */
+                margin-bottom: 1rem;
                 min-height: 50vh;
             }
             @media (max-width: 768px) {
                 .chat-container {
-                    margin-bottom: 1rem; /* ลดระยะห่างในมือถือ */
+                    margin-bottom: 1rem;
                     padding: 0.8rem;
                 }
             }
@@ -1123,7 +1097,7 @@ def main():
                 font-weight: 600;
             }
             .footer {
-                display: none; /* ซ่อนฟุตเตอร์ */
+                display: none;
             }
             </style>
         """, unsafe_allow_html=True)
@@ -1140,7 +1114,7 @@ def main():
             st.session_state.app_initialized = True
             cleanup_cache()
 
-        # Model info with better styling
+        # Model info with better styling - updated to show FAISS
         st.markdown(f'<div class="model-info">{t["model_info"]}</div>', unsafe_allow_html=True)
 
         # Document loading status
@@ -1153,9 +1127,9 @@ def main():
                 
         with col2:
             if st.session_state.documents_processed and st.session_state.vectorstore:
-                st.success(f"🗃️ ChromaDB ready ({st.session_state.document_chunks} chunks)")
+                st.success(f"🗃️ FAISS ready ({st.session_state.document_chunks} chunks)")
             else:
-                st.warning("🗃️ ChromaDB not ready")
+                st.warning("🗃️ FAISS not ready")
                 
         with col3:
             if st.session_state.initialization_complete:
@@ -1266,21 +1240,17 @@ def main():
                     if st.session_state.vectorstore:
                         st.write(f"**Vector Database Info:**")
                         try:
-                            # Get ChromaDB info
+                            # Get FAISS info
                             vectorstore_type = type(st.session_state.vectorstore).__name__
                             st.write(f"- Vector store type: {vectorstore_type}")
-                            st.write(f"- Database: ChromaDB (persistent)")
+                            st.write(f"- Database: FAISS (Facebook AI Similarity Search)")
                             
-                            # ChromaDB collection info
-                            if hasattr(st.session_state.vectorstore, '_collection'):
-                                try:
-                                    count = st.session_state.vectorstore._collection.count()
-                                    st.write(f"- ChromaDB count: {count}")
-                                    st.write(f"- Collection name: {st.session_state.vectorstore._collection.name}")
-                                except Exception as e:
-                                    st.write(f"- ChromaDB status: Connected")
+                            # FAISS index info
+                            if hasattr(st.session_state.vectorstore, 'index'):
+                                st.write(f"- FAISS index size: {st.session_state.vectorstore.index.ntotal}")
+                                st.write(f"- Vector dimension: {st.session_state.vectorstore.index.d}")
                             else:
-                                st.write(f"- ChromaDB status: Available")
+                                st.write(f"- FAISS status: Available")
                         except Exception as e:
                             st.write(f"- Vector store info: {str(e)}")
 
@@ -1295,50 +1265,45 @@ def main():
                 cache_files = list(CACHE_DIR.glob("vectors_*"))
                 st.write(f"💾 Cache files: {len(cache_files)}")
 
-            # Clear buttons - แยกเป็น 2 แถว
+            # Clear buttons
             if st.button(t["clear_chat"], use_container_width=True):
                 st.session_state.messages = []
                 st.success("✅ Chat cleared!")
             
-            if st.button("🗑️ Clear ChromaDB", use_container_width=True):
+            if st.button("🗑️ Clear FAISS Cache", use_container_width=True):
                 try:
                     import shutil
                     # Clear cache directory
                     if CACHE_DIR.exists():
                         shutil.rmtree(CACHE_DIR)
                         CACHE_DIR.mkdir(exist_ok=True)
-                    # Clear ChromaDB directory
-                    chroma_path = Path("./chroma_db")
-                    if chroma_path.exists():
-                        shutil.rmtree(chroma_path)
                     st.session_state.vectorstore = None
                     st.session_state.documents_processed = False
                     st.session_state.auto_load_attempted = False
                     st.session_state.show_loading_messages = True
                     # Reset app state
                     save_app_state({"initialized": False, "last_load": 0})
-                    st.success("✅ ChromaDB cleared!")
+                    st.success("✅ FAISS cache cleared!")
                     time.sleep(1)
                     st.rerun()
                 except Exception as e:
-                    st.error(f"Error clearing ChromaDB: {e}")
+                    st.error(f"Error clearing FAISS cache: {e}")
             
-            # Show ChromaDB status
-            chroma_path = Path("./chroma_db")
-            if chroma_path.exists():
-                st.success("📊 ChromaDB exists")
+            # Show FAISS status
+            if st.session_state.vectorstore:
+                st.success("📊 FAISS ready")
                 try:
-                    chroma_client = chromadb.PersistentClient(path="./chroma_db")
-                    collections = chroma_client.list_collections()
-                    st.info(f"Collections: {len(collections)}")
-                    if collections:
-                        for collection in collections:
-                            count = collection.count()
-                            st.caption(f"- {collection.name}: {count} items")
+                    if hasattr(st.session_state.vectorstore, 'index'):
+                        st.info(f"Vectors: {st.session_state.vectorstore.index.ntotal}")
+                        st.caption(f"Dimension: {st.session_state.vectorstore.index.d}")
                 except Exception as e:
-                    st.caption(f"ChromaDB info: {str(e)}")
+                    st.caption(f"FAISS info: {str(e)}")
             else:
-                st.info("📊 ChromaDB empty")
+                st.info("📊 FAISS not ready")
+
+        # Main content area
+        # Auto-load local files if not done yet
+        auto_load_local_files()
 
         # Main content
         if st.session_state.documents_processed:
@@ -1350,7 +1315,7 @@ def main():
                 with st.chat_message(message["role"]):
                     st.markdown(message["content"])
 
-            # Chat input - make sure it's always visible
+            # Chat input
             if prompt := st.chat_input(t["ask_placeholder"]):
                 # Add user message
                 st.session_state.messages.append({"role": "user", "content": prompt})
@@ -1400,68 +1365,6 @@ def main():
                         st.error("⚠️ Could not set up the retrieval system.")
             
             st.markdown('</div>', unsafe_allow_html=True)
-            st.markdown('</div>', unsafe_allow_html=True)
-
-        # Always show chat input at the bottom regardless of document state
-        st.markdown('<div style="margin-top: 2rem; min-height: 100px;"></div>', unsafe_allow_html=True)
-        
-        # Global chat input - always visible
-        placeholder_text = t["ask_placeholder"] if st.session_state.documents_processed else "Upload documents first or wait for auto-loading to complete..."
-        if prompt := st.chat_input(placeholder_text):
-            if not st.session_state.documents_processed:
-                st.error("❌ No documents loaded. Please wait for auto-loading to complete or upload files manually.")
-                time.sleep(2)
-                st.rerun()
-            else:
-                # Add user message
-                st.session_state.messages.append({"role": "user", "content": prompt})
-                with st.chat_message("user"):
-                    st.markdown(prompt)
-
-                # Generate response
-                with st.chat_message("assistant"):
-                    retrieval_chain = setup_advanced_retrieval_chain()
-                    if retrieval_chain:
-                        with st.spinner(t["thinking"]):
-                            try:
-                                response = query_with_analytics(retrieval_chain, prompt)
-                                answer = response.get('answer', 'No answer generated')
-                                
-                                st.markdown(answer)
-                                st.session_state.messages.append({"role": "assistant", "content": answer})
-                                
-                                # Enhanced source display
-                                if 'source_documents' in response and response['source_documents']:
-                                    with st.expander(f"📚 Sources ({len(response['source_documents'])})"):
-                                        for i, doc in enumerate(response['source_documents']):
-                                            st.markdown(f'<span class="bold-text">Source {i+1}:</span>', unsafe_allow_html=True)
-                                            content = doc.page_content[:300] + "..." if len(doc.page_content) > 300 else doc.page_content
-                                            st.markdown(content)
-                                            
-                                            if hasattr(doc, 'metadata') and doc.metadata:
-                                                meta = doc.metadata
-                                                source_type = "📁 Local" if meta.get('file_type') == 'local' else "📤 Uploaded"
-                                                st.caption(f"{source_type}: {meta.get('source_file', 'Unknown')}")
-                                                if st.session_state.debug_mode:
-                                                    st.caption(f"🔢 Chunk: {meta.get('chunk_id', 'N/A')} | Length: {meta.get('content_length', 'N/A')}")
-                                            st.markdown("---")
-                                
-                                # Query analytics
-                                if st.session_state.debug_mode:
-                                    st.caption(f"⏱️ Query time: {response.get('query_time', 0):.2f}s")
-                                
-                            except TimeoutError:
-                                st.error("⏱️ Request timed out. Please try a shorter question.")
-                            except Exception as e:
-                                if "RATE_LIMIT" in str(e):
-                                    st.error("⏳ API rate limit reached. Please wait and try again.")
-                                else:
-                                    st.error(f"🚨 Error: {str(e)}")
-                    else:
-                        st.error("⚠️ Could not set up the retrieval system.")
-            
-            # Rerun to update chat display
-            st.rerun()
 
         else:
             # Simple info without welcome card
@@ -1529,7 +1432,7 @@ The system should be able to find and use this content when answering questions 
             with st.expander("ℹ️ How to use / วิธีใช้งาน", expanded=False):
                 if st.session_state.language == "en":
                     st.markdown("""
-                    <div class="bold-text">🚀 Advanced RAG Chatbot with Auto-Load:</div>
+                    <div class="bold-text">🚀 Advanced RAG Chatbot with FAISS:</div>
                     
                     <div class="bold-text">📁 Auto-Detection:</div>
                     - Automatically scans repository for PDF, TXT, CSV, XLSX files
@@ -1548,18 +1451,18 @@ The system should be able to find and use this content when answering questions 
                     - Configurable response parameters
                     
                     <div class="bold-text">💾 Smart Caching:</div>
-                    - Automatic vector caching
+                    - Automatic vector caching with FAISS
                     - Fast reload for same documents
-                    - ChromaDB persistent storage
+                    - FAISS local storage
                     - Cache cleanup and management
                     - Persistent storage across sessions
                     
-                    <div class="bold-text">🗃️ ChromaDB Features:</div>
-                    - 💾 Persistent storage - data survives restarts
-                    - 🚀 Fast similarity search
-                    - 📊 Rich metadata support
-                    - 🔄 CRUD operations support
-                    - 🌐 REST API ready
+                    <div class="bold-text">🗃️ FAISS Features:</div>
+                    - 💾 Fast similarity search
+                    - 🚀 Efficient memory usage
+                    - 📊 Local file storage
+                    - 🔄 CPU optimized
+                    - 🌐 No external dependencies
                     
                     <div class="bold-text">📊 File Types Supported:</div>
                     - 📄 PDF files
@@ -1568,9 +1471,20 @@ The system should be able to find and use this content when answering questions 
                     - 📈 Excel files (.xlsx, .xls)
                     - 📄 Word documents (.docx)
                     """, unsafe_allow_html=True)
+
+        # Always show chat input area at the bottom
+        st.markdown('<div style="margin-top: 2rem;"></div>', unsafe_allow_html=True)
+        
+    except Exception as e:
+        st.error(f"Application error: {str(e)}")
+        if st.session_state.debug_mode:
+            st.code(str(e))
+
+if __name__ == "__main__":
+    main()
                 else:
                     st.markdown("""
-                    <div class="bold-text">🚀 Advanced RAG Chatbot พร้อม Auto-Load:</div>
+                    <div class="bold-text">🚀 Advanced RAG Chatbot พร้อม FAISS:</div>
                     
                     <div class="bold-text">📁 การตรวจจับอัตโนมัติ:</div>
                     - สแกนหาไฟล์ PDF, TXT, CSV, XLSX ใน repository อัตโนมัติ
@@ -1589,18 +1503,18 @@ The system should be able to find and use this content when answering questions 
                     - ตั้งค่าพารามิเตอร์การตอบได้
                     
                     <div class="bold-text">💾 Smart Caching:</div>
-                    - Cache vectors อัตโนมัติ
+                    - Cache vectors อัตโนมัติด้วย FAISS
                     - โหลดเร็วสำหรับเอกสารเดิม
-                    - ChromaDB เก็บข้อมูลถาวร
+                    - FAISS local storage
                     - ทำความสะอาดและจัดการ cache
                     - เก็บข้อมูลถาวรข้ามเซสชั่น
                     
-                    <div class="bold-text">🗃️ ฟีเจอร์ ChromaDB:</div>
-                    - 💾 เก็บข้อมูลถาวร - อยู่ได้หลัง restart
-                    - 🚀 ค้นหาความคล้ายเร็ว
-                    - 📊 รองรับ metadata ที่ซับซ้อน
-                    - 🔄 รองรับ CRUD operations
-                    - 🌐 พร้อม REST API
+                    <div class="bold-text">🗃️ ฟีเจอร์ FAISS:</div>
+                    - 💾 ค้นหาความคล้ายเร็ว
+                    - 🚀 ใช้หน่วยความจำอย่างมีประสิทธิภาพ
+                    - 📊 เก็บข้อมูลในไฟล์ local
+                    - 🔄 เหมาะสำหรับ CPU
+                    - 🌐 ไม่ต้องพึ่ง dependencies ภายนอก
                     
                     <div class="bold-text">📊 ประเภทไฟล์ที่รองรับ:</div>
                     - 📄 ไฟล์ PDF
@@ -1608,28 +1522,3 @@ The system should be able to find and use this content when answering questions 
                     - 📊 ไฟล์ CSV
                     - 📈 ไฟล์ Excel (.xlsx, .xls)
                     - 📄 เอกสาร Word (.docx)
-                    """, unsafe_allow_html=True)
-
-        # Always show chat input area at the bottom
-        st.markdown('<div style="margin-top: 2rem;"></div>', unsafe_allow_html=True)
-        
-        # Chat input should always be visible
-        if prompt := st.chat_input(t["ask_placeholder"] if st.session_state.documents_processed else "Upload documents first or wait for auto-loading..."):
-            if not st.session_state.documents_processed:
-                st.warning("⚠️ Please wait for documents to be processed or upload files first.")
-                st.rerun()
-            else:
-                # Process chat normally (this code won't execute in welcome state)
-                st.session_state.messages.append({"role": "user", "content": prompt})
-                with st.chat_message("user"):
-                    st.markdown(prompt)
-
-        # Footer removed - cleaner interface
-        
-    except Exception as e:
-        st.error(f"Application error: {str(e)}")
-        if st.session_state.debug_mode:
-            st.code(str(e))
-
-if __name__ == "__main__":
-    main()
