@@ -10,6 +10,7 @@ python-dotenv==1.0.1
 google-generativeai==0.7.2
 mistralai==1.0.1
 langchain-google-genai==1.0.8
+langchain_mistralai
 
 # LangChain Core
 langchain==0.2.11
