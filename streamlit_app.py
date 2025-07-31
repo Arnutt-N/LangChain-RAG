@@ -737,7 +737,7 @@ def auto_load_local_files():
         st.error(f"Error during auto-load: {e}")
         st.session_state.show_loading_messages = False
 
-# Custom Mistral LangChain wrapper
+# Custom Mistral LangChain wrapper with improved compatibility
 class MistralLLM:
     def __init__(self, api_key: str, model: str = "mistral-large-latest", temperature: float = 0.1, max_tokens: int = 512):
         self.client = Mistral(api_key=api_key)
@@ -745,28 +745,25 @@ class MistralLLM:
         self.temperature = temperature
         self.max_tokens = max_tokens
     
-    def invoke(self, messages):
+    def invoke(self, input_data):
         """Invoke method to match LangChain interface"""
         try:
-            # Convert LangChain format to Mistral format
-            if hasattr(messages, 'content'):
-                # Single message object
-                mistral_messages = [{"role": "user", "content": messages.content}]
-            elif isinstance(messages, str):
-                # String message
-                mistral_messages = [{"role": "user", "content": messages}]
-            elif isinstance(messages, list):
-                # List of messages
-                mistral_messages = []
-                for msg in messages:
-                    if hasattr(msg, 'content') and hasattr(msg, 'type'):
-                        role = "user" if msg.type == "human" else "assistant"
-                        mistral_messages.append({"role": role, "content": msg.content})
-                    elif isinstance(msg, dict):
-                        mistral_messages.append(msg)
+            # Handle different input formats
+            if isinstance(input_data, dict):
+                # Extract content from dict
+                if 'input' in input_data:
+                    content = input_data['input']
+                elif 'question' in input_data:
+                    content = input_data['question']
+                else:
+                    content = str(input_data)
+            elif hasattr(input_data, 'content'):
+                content = input_data.content
             else:
-                # Fallback
-                mistral_messages = [{"role": "user", "content": str(messages)}]
+                content = str(input_data)
+            
+            # Create Mistral messages format
+            mistral_messages = [{"role": "user", "content": content}]
             
             response = self.client.chat.complete(
                 model=self.model,
@@ -785,6 +782,23 @@ class MistralLLM:
         except Exception as e:
             st.error(f"Mistral API Error: {e}")
             return Response("Sorry, I encountered an error while generating response.")
+    
+    def _call(self, prompt: str, stop=None, run_manager=None):
+        """Alternative method for LangChain compatibility"""
+        try:
+            response = self.client.chat.complete(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=self.temperature,
+                max_tokens=self.max_tokens
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            return f"Error: {str(e)}"
+    
+    @property
+    def _llm_type(self):
+        return "mistral"
 
 # Enhanced query processing
 def setup_advanced_retrieval_chain():
@@ -811,33 +825,39 @@ def setup_advanced_retrieval_chain():
         
         # Select model based on user choice
         if st.session_state.selected_model == "mistral" and MISTRAL_API_KEY and MISTRAL_AVAILABLE:
-            # Use Mistral model
-            llm = MistralLLM(
-                api_key=MISTRAL_API_KEY,
-                model="mistral-large-latest",
-                temperature=st.session_state.temperature,
-                max_tokens=st.session_state.max_tokens
-            )
+            # For Mistral, use a simplified approach due to LangChain compatibility issues
+            return {
+                "type": "mistral",
+                "retriever": retriever,
+                "memory": memory,
+                "llm": MistralLLM(
+                    api_key=MISTRAL_API_KEY,
+                    model="mistral-large-latest",
+                    temperature=st.session_state.temperature,
+                    max_tokens=st.session_state.max_tokens
+                )
+            }
         else:
-            # Default to Gemini model
+            # Default to Gemini model with full LangChain integration
             llm = ChatGoogleGenerativeAI(
                 model="gemini-pro",
                 temperature=st.session_state.temperature,
                 max_tokens=st.session_state.max_tokens,
                 google_api_key=GOOGLE_API_KEY,
             )
-        
-        qa_chain = ConversationalRetrievalChain.from_llm(
-            llm=llm,
-            retriever=retriever,
-            memory=memory,
-            return_source_documents=True,
-            verbose=False
-        )
-        
-        return qa_chain
+            
+            qa_chain = ConversationalRetrievalChain.from_llm(
+                llm=llm,
+                retriever=retriever,
+                memory=memory,
+                return_source_documents=True,
+                verbose=False
+            )
+            
+            return qa_chain
         
     except Exception as e:
+        st.error(f"Error setting up retrieval chain: {e}")
         return None
 
 def query_with_analytics(chain, question: str) -> Dict[str, Any]:
@@ -858,12 +878,47 @@ def query_with_analytics(chain, question: str) -> Dict[str, Any]:
         if len(st.session_state.search_history) > 10:
             st.session_state.search_history = st.session_state.search_history[-10:]
         
-        response = chain.invoke({"question": question})
-        
-        # Add analytics
-        response["query_time"] = time.time() - start_time
-        response["question"] = question
-        response["model_used"] = st.session_state.selected_model
+        # Handle different chain types
+        if isinstance(chain, dict) and chain.get("type") == "mistral":
+            # Custom Mistral handling
+            retriever = chain["retriever"]
+            llm = chain["llm"]
+            
+            # Retrieve relevant documents
+            relevant_docs = retriever.get_relevant_documents(question)
+            
+            # Prepare context from documents
+            context = "\n\n".join([doc.page_content for doc in relevant_docs])
+            
+            # Create prompt for Mistral
+            prompt = f"""Based on the following context, please answer the question. If the context doesn't contain enough information to answer the question, say so clearly.
+
+Context:
+{context}
+
+Question: {question}
+
+Answer:"""
+            
+            # Get response from Mistral
+            response_obj = llm.invoke(prompt)
+            answer = response_obj.content if hasattr(response_obj, 'content') else str(response_obj)
+            
+            # Create response object
+            response = {
+                "answer": answer,
+                "source_documents": relevant_docs,
+                "query_time": time.time() - start_time,
+                "question": question,
+                "model_used": "mistral"
+            }
+            
+        else:
+            # Standard LangChain handling (for Gemini)
+            response = chain.invoke({"question": question})
+            response["query_time"] = time.time() - start_time
+            response["question"] = question
+            response["model_used"] = st.session_state.selected_model
         
         return response
         
