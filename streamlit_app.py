@@ -1471,17 +1471,6 @@ The system should be able to find and use this content when answering questions 
                     - 📈 Excel files (.xlsx, .xls)
                     - 📄 Word documents (.docx)
                     """, unsafe_allow_html=True)
-
-        # Always show chat input area at the bottom
-        st.markdown('<div style="margin-top: 2rem;"></div>', unsafe_allow_html=True)
-        
-    except Exception as e:
-        st.error(f"Application error: {str(e)}")
-        if st.session_state.debug_mode:
-            st.code(str(e))
-
-if __name__ == "__main__":
-    main()
                 else:
                     st.markdown("""
                     <div class="bold-text">🚀 Advanced RAG Chatbot พร้อม FAISS:</div>
@@ -1522,3 +1511,15 @@ if __name__ == "__main__":
                     - 📊 ไฟล์ CSV
                     - 📈 ไฟล์ Excel (.xlsx, .xls)
                     - 📄 เอกสาร Word (.docx)
+                    """, unsafe_allow_html=True)
+
+        # Always show chat input area at the bottom
+        st.markdown('<div style="margin-top: 2rem;"></div>', unsafe_allow_html=True)
+        
+    except Exception as e:
+        st.error(f"Application error: {str(e)}")
+        if st.session_state.debug_mode:
+            st.code(str(e))
+
+if __name__ == "__main__":
+    main()
