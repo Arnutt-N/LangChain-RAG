@@ -809,13 +809,23 @@ def setup_advanced_retrieval_chain():
             output_key="answer"
         )
         
-        # Updated Gemini model with latest API
-        llm = ChatGoogleGenerativeAI(
-            model="gemini-pro",
-            temperature=st.session_state.temperature,
-            max_tokens=st.session_state.max_tokens,
-            google_api_key=GOOGLE_API_KEY,
-        )
+        # Select model based on user choice
+        if st.session_state.selected_model == "mistral" and MISTRAL_API_KEY and MISTRAL_AVAILABLE:
+            # Use Mistral model
+            llm = MistralLLM(
+                api_key=MISTRAL_API_KEY,
+                model="mistral-large-latest",
+                temperature=st.session_state.temperature,
+                max_tokens=st.session_state.max_tokens
+            )
+        else:
+            # Default to Gemini model
+            llm = ChatGoogleGenerativeAI(
+                model="gemini-pro",
+                temperature=st.session_state.temperature,
+                max_tokens=st.session_state.max_tokens,
+                google_api_key=GOOGLE_API_KEY,
+            )
         
         qa_chain = ConversationalRetrievalChain.from_llm(
             llm=llm,
@@ -835,6 +845,9 @@ def query_with_analytics(chain, question: str) -> Dict[str, Any]:
     try:
         start_time = time.time()
         
+        # Add delay to prevent rate limiting
+        time.sleep(1)  # 1 second delay between requests
+        
         # Store search history
         st.session_state.search_history.append({
             "question": question,
@@ -850,6 +863,7 @@ def query_with_analytics(chain, question: str) -> Dict[str, Any]:
         # Add analytics
         response["query_time"] = time.time() - start_time
         response["question"] = question
+        response["model_used"] = st.session_state.selected_model
         
         return response
         
@@ -1133,7 +1147,9 @@ def main():
                 
         with col3:
             if st.session_state.initialization_complete:
-                st.success("✅ System ready")
+                # Show current model
+                current_model = "Mistral Large" if st.session_state.selected_model == "mistral" else "Gemini Pro"
+                st.success(f"✅ {current_model} ready")
             else:
                 st.info("⏳ Loading...")
 
