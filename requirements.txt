@@ -1,43 +1,64 @@
 # =============================================================================
-# LOCAL DEVELOPMENT REQUIREMENTS (สำหรับพัฒนาในเครื่อง)
+# ADVANCED RAG CHATBOT REQUIREMENTS - ChromaDB Version
 # =============================================================================
-
-# Core (same as Streamlit Cloud)
+# Core Streamlit and Environment
 streamlit==1.37.0
 python-dotenv==1.0.1
+
+# AI Models and APIs
 google-generativeai==0.7.2
 mistralai
 langchain-google-genai==1.0.8
+
+# LangChain Core
 langchain==0.2.11
 langchain-community==0.2.10
 langchain-core==0.2.35
 langchain-text-splitters==0.2.2
 langchain-huggingface==0.0.3
+
+# Vector Database - ChromaDB (Persistent)
+chromadb==0.4.24
+
+# Embeddings and ML
 sentence-transformers==3.0.1
 transformers==4.44.2
 torch==2.7.1
-faiss-cpu==1.8.0
 numpy==1.26.4
+
+# Document Processing
 pypdf==4.3.1
 unstructured==0.15.0
 openpyxl==3.1.5
+python-docx==1.1.2
+xlrd==2.0.1
+
+# Data Processing
 pandas==2.2.2
 requests==2.32.3
 pydantic==2.8.2
 tenacity==8.5.0
 
-# Additional for local development
-jupyter==1.1.1
-ipython==8.29.0
-python-docx==1.1.2
-xlrd==2.0.1
+# File Processing
 chardet==5.2.0
 filetype==1.2.0
 
-# Enhanced document processing (optional)
+# Enhanced PDF Processing (optional)
 PyMuPDF==1.24.10
 pdfplumber==0.11.4
 
-# Development tools
+# =============================================================================
+# DEVELOPMENT TOOLS (for local development only)
+# =============================================================================
+jupyter==1.1.1
+ipython==8.29.0
 black==24.8.0
 pytest==8.3.2
+
+# =============================================================================
+# NOTES:
+# - Removed faiss-cpu (switched to ChromaDB only)
+# - Added chromadb for persistent vector storage
+# - All document types supported: PDF, TXT, CSV, XLSX, DOCX
+# - Compatible with Streamlit Cloud deployment
+# =============================================================================
