@@ -30,16 +30,18 @@ def check_dependencies():
         import google.generativeai as genai
         from langchain_google_genai import ChatGoogleGenerativeAI
         from langchain_huggingface import HuggingFaceEmbeddings
-        from langchain_community.vectorstores import FAISS
         from langchain_community.document_loaders import PyPDFLoader, CSVLoader, UnstructuredExcelLoader
         from langchain_text_splitters import RecursiveCharacterTextSplitter
         from langchain.memory import ConversationBufferMemory
         from langchain.chains import ConversationalRetrievalChain
-        # Optional Mistral import
+        # Optional imports
         try:
             from mistralai import Mistral
         except ImportError:
             pass  # Mistral is optional
+        # ChromaDB is required
+        import chromadb
+        from langchain_community.vectorstores import Chroma
     except ImportError as e:
         missing_package = str(e).split("'")[1] if "'" in str(e) else str(e)
         missing_packages.append(missing_package)
@@ -63,7 +65,6 @@ try:
     import google.generativeai as genai
     from langchain_google_genai import ChatGoogleGenerativeAI
     from langchain_huggingface import HuggingFaceEmbeddings
-    from langchain_community.vectorstores import FAISS
     from langchain_community.document_loaders import (
         PyPDFLoader, 
         CSVLoader, 
@@ -84,6 +85,17 @@ try:
     except ImportError:
         MISTRAL_AVAILABLE = False
         # Don't show notification here - will show later in proper order
+    
+    # ChromaDB import - required
+    try:
+        import chromadb
+        from langchain_community.vectorstores import Chroma
+        CHROMADB_AVAILABLE = True
+    except ImportError:
+        CHROMADB_AVAILABLE = False
+        st.error("❌ ChromaDB is required but not installed!")
+        st.info("Please install ChromaDB: `pip install chromadb`")
+        st.stop()
     
 except ImportError as e:
     st.error(f"Import error: {e}")
@@ -168,7 +180,7 @@ translations = {
         "clear_chat": "🗑️ Clear Chat",
         "clear_cache": "🗑️ Clear Cache",
         "reload_local": "🔄 Reload Local Files",
-        "model_info": '<span class="emoji">🤖</span><span class="bold-text">Model:</span> Gemini Pro / Mistral Large | <span class="emoji">📊</span><span class="bold-text">Embedding:</span> MiniLM-L6-v2 | <span class="emoji">🗃️</span><span class="bold-text">Vector DB:</span> FAISS',
+        "model_info": '<span class="emoji">🤖</span><span class="bold-text">Model:</span> Gemini Pro / Mistral Large | <span class="emoji">📊</span><span class="bold-text">Embedding:</span> MiniLM-L6-v2 | <span class="emoji">🗃️</span><span class="bold-text">Vector DB:</span> ChromaDB',
         "no_documents": "📄 No documents found. Please check the repository or upload files.",
         "error_processing": "❌ Error processing documents. Please try again.",
         "error_response": "🚨 Sorry, I encountered an error while generating response.",
@@ -197,7 +209,7 @@ translations = {
         "clear_chat": "🗑️ ล้างการแชท",
         "clear_cache": "🗑️ ล้าง Cache",
         "reload_local": "🔄 โหลดไฟล์ local ใหม่",
-        "model_info": '<span class="emoji">🤖</span><span class="bold-text">โมเดล:</span> Gemini Pro / Mistral Large | <span class="emoji">📊</span><span class="bold-text">Embedding:</span> MiniLM-L6-v2 | <span class="emoji">🗃️</span><span class="bold-text">Vector DB:</span> FAISS',
+        "model_info": '<span class="emoji">🤖</span><span class="bold-text">โมเดล:</span> Gemini Pro / Mistral Large | <span class="emoji">📊</span><span class="bold-text">Embedding:</span> MiniLM-L6-v2 | <span class="emoji">🗃️</span><span class="bold-text">Vector DB:</span> ChromaDB',
         "no_documents": "📄 ไม่พบเอกสาร กรุณาตรวจสอบ repository หรืออัปโหลดไฟล์",
         "error_processing": "❌ เกิดข้อผิดพลาดในการประมวลผลเอกสาร",
         "error_response": "🚨 ขออภัย เกิดข้อผิดพลาดในการสร้างคำตอบ",
@@ -238,6 +250,7 @@ def init_session_state():
         "show_loading_messages": True,
         "initialization_complete": False,
         "selected_model": "gemini", # Default model
+        "selected_vector_db": "chromadb", # Use ChromaDB only
     }
     
     for key, value in defaults.items():
@@ -364,24 +377,25 @@ def get_cache_key(local_files: List[str], uploaded_files: List) -> str:
         except:
             continue
     
+    # ChromaDB identifier
+    file_hashes["vector_db"] = "chromadb"
+    
     cache_string = json.dumps(sorted(file_hashes.items()), sort_keys=True)
     return hashlib.md5(cache_string.encode()).hexdigest()[:16]
 
-def save_vectors_to_cache(vectorstore: FAISS, cache_key: str, file_info: Dict):
-    """Save vectorstore to cache"""
+def save_vectors_to_cache(vectorstore, cache_key: str, file_info: Dict):
+    """Save ChromaDB vectorstore metadata to cache"""
     try:
         cache_path = CACHE_DIR / f"vectors_{cache_key}"
         cache_path.mkdir(exist_ok=True)
         
-        # Save FAISS index
-        vectorstore.save_local(str(cache_path))
-        
-        # Save metadata
+        # ChromaDB persists automatically, just save metadata
         metadata = {
             "file_info": file_info,
             "timestamp": time.time(),
             "cache_key": cache_key,
-            "chunks": st.session_state.document_chunks
+            "chunks": st.session_state.document_chunks,
+            "vector_db_type": "chromadb"
         }
         
         with open(cache_path / "metadata.json", "w", encoding='utf-8') as f:
@@ -392,12 +406,12 @@ def save_vectors_to_cache(vectorstore: FAISS, cache_key: str, file_info: Dict):
         return False
 
 def load_vectors_from_cache(cache_key: str):
-    """Load vectorstore from cache"""
+    """Load ChromaDB vectorstore from cache"""
     try:
         cache_path = CACHE_DIR / f"vectors_{cache_key}"
         metadata_path = cache_path / "metadata.json"
         
-        if not cache_path.exists() or not metadata_path.exists():
+        if not metadata_path.exists():
             return None, None
         
         # Load metadata
@@ -413,19 +427,57 @@ def load_vectors_from_cache(cache_key: str):
         if not embeddings:
             return None, None
         
-        # Load FAISS vectorstore
-        vectorstore = FAISS.load_local(
-            str(cache_path), 
-            embeddings, 
-            allow_dangerous_deserialization=True
-        )
+        # Load ChromaDB
+        chroma_client = chromadb.PersistentClient(path="./chroma_db")
+        collection_name = "rag_documents"
         
-        return vectorstore, metadata
+        try:
+            vectorstore = Chroma(
+                client=chroma_client,
+                collection_name=collection_name,
+                embedding_function=embeddings,
+                persist_directory="./chroma_db"
+            )
+            return vectorstore, metadata
+        except:
+            return None, None
         
     except Exception as e:
         return None, None
 
 # Enhanced document processing
+# Enhanced document processing with ChromaDB
+def create_chromadb_vectorstore(texts, embeddings, collection_name="rag_documents"):
+    """Create ChromaDB vector store from texts"""
+    try:
+        # ChromaDB setup
+        chroma_client = chromadb.PersistentClient(path="./chroma_db")
+        
+        # Create or get collection
+        try:
+            collection = chroma_client.get_collection(collection_name)
+            # Delete existing collection to start fresh
+            chroma_client.delete_collection(collection_name)
+        except:
+            pass
+        
+        # Create new collection
+        vectorstore = Chroma(
+            client=chroma_client,
+            collection_name=collection_name,
+            embedding_function=embeddings,
+            persist_directory="./chroma_db"
+        )
+        
+        # Add documents to ChromaDB
+        vectorstore.add_documents(texts)
+        
+        return vectorstore
+        
+    except Exception as e:
+        st.error(f"Error creating ChromaDB vector store: {e}")
+        return None
+
 def load_single_local_file(filepath: str) -> List[Document]:
     """Load a single local file"""
     try:
@@ -624,7 +676,11 @@ def process_all_documents(local_files: List[str], uploaded_files: List, show_pro
         if not embeddings:
             return False
         
-        vectorstore = FAISS.from_documents(texts, embeddings)
+        # Create ChromaDB vector store
+        vectorstore = create_chromadb_vectorstore(texts, embeddings)
+        
+        if not vectorstore:
+            return False
         
         # Save to cache
         if show_progress and status_text:
@@ -1097,9 +1153,9 @@ def main():
                 
         with col2:
             if st.session_state.documents_processed and st.session_state.vectorstore:
-                st.success(f"🗃️ Vector DB ready ({st.session_state.document_chunks} chunks)")
+                st.success(f"🗃️ ChromaDB ready ({st.session_state.document_chunks} chunks)")
             else:
-                st.warning("🗃️ Vector DB not ready")
+                st.warning("🗃️ ChromaDB not ready")
                 
         with col3:
             if st.session_state.initialization_complete:
@@ -1155,8 +1211,7 @@ def main():
 
             # Reload local files button
             if st.button(t["reload_local"], use_container_width=True):
-                print("DEBUG: Manual reload triggered")
-                # Clear cache first
+                # Clear session state
                 st.session_state.local_files = []
                 st.session_state.auto_load_attempted = False
                 st.session_state.documents_processed = False
@@ -1165,8 +1220,6 @@ def main():
                 st.session_state.initialization_complete = False
                 # Reset app state to allow messages to show again
                 save_app_state({"initialized": False, "last_load": 0})
-                # Force a fresh scan
-                scan_local_files.clear()  # Clear cache
                 st.rerun()
 
             # File uploader
@@ -1213,11 +1266,21 @@ def main():
                     if st.session_state.vectorstore:
                         st.write(f"**Vector Database Info:**")
                         try:
-                            # Get some basic info about the vectorstore
-                            st.write(f"- Vector store type: {type(st.session_state.vectorstore).__name__}")
-                            # Try to get index info
-                            if hasattr(st.session_state.vectorstore, 'index'):
-                                st.write(f"- Index size: {st.session_state.vectorstore.index.ntotal if hasattr(st.session_state.vectorstore.index, 'ntotal') else 'Unknown'}")
+                            # Get ChromaDB info
+                            vectorstore_type = type(st.session_state.vectorstore).__name__
+                            st.write(f"- Vector store type: {vectorstore_type}")
+                            st.write(f"- Database: ChromaDB (persistent)")
+                            
+                            # ChromaDB collection info
+                            if hasattr(st.session_state.vectorstore, '_collection'):
+                                try:
+                                    count = st.session_state.vectorstore._collection.count()
+                                    st.write(f"- ChromaDB count: {count}")
+                                    st.write(f"- Collection name: {st.session_state.vectorstore._collection.name}")
+                                except Exception as e:
+                                    st.write(f"- ChromaDB status: Connected")
+                            else:
+                                st.write(f"- ChromaDB status: Available")
                         except Exception as e:
                             st.write(f"- Vector store info: {str(e)}")
 
@@ -1237,21 +1300,45 @@ def main():
                 st.session_state.messages = []
                 st.success("✅ Chat cleared!")
             
-            if st.button(t["clear_cache"], use_container_width=True):
+            if st.button("🗑️ Clear ChromaDB", use_container_width=True):
                 try:
                     import shutil
+                    # Clear cache directory
                     if CACHE_DIR.exists():
                         shutil.rmtree(CACHE_DIR)
                         CACHE_DIR.mkdir(exist_ok=True)
+                    # Clear ChromaDB directory
+                    chroma_path = Path("./chroma_db")
+                    if chroma_path.exists():
+                        shutil.rmtree(chroma_path)
                     st.session_state.vectorstore = None
                     st.session_state.documents_processed = False
                     st.session_state.auto_load_attempted = False
                     st.session_state.show_loading_messages = True
                     # Reset app state
                     save_app_state({"initialized": False, "last_load": 0})
-                    st.success("✅ Cache cleared!")
+                    st.success("✅ ChromaDB cleared!")
+                    time.sleep(1)
+                    st.rerun()
                 except Exception as e:
-                    st.error(f"Error clearing cache: {e}")
+                    st.error(f"Error clearing ChromaDB: {e}")
+            
+            # Show ChromaDB status
+            chroma_path = Path("./chroma_db")
+            if chroma_path.exists():
+                st.success("📊 ChromaDB exists")
+                try:
+                    chroma_client = chromadb.PersistentClient(path="./chroma_db")
+                    collections = chroma_client.list_collections()
+                    st.info(f"Collections: {len(collections)}")
+                    if collections:
+                        for collection in collections:
+                            count = collection.count()
+                            st.caption(f"- {collection.name}: {count} items")
+                except Exception as e:
+                    st.caption(f"ChromaDB info: {str(e)}")
+            else:
+                st.info("📊 ChromaDB empty")
 
         # Main content
         if st.session_state.documents_processed:
@@ -1389,16 +1476,47 @@ def main():
                 st.write(f"- Documents processed: {st.session_state.documents_processed}")
                 st.write(f"- Current directory: {os.getcwd()}")
                 
-                # Show files in current directory
-                try:
-                    all_files = []
-                    for root, dirs, files in os.walk('.'):
-                        if not root.startswith('.'):
-                            for file in files:
-                                all_files.append(os.path.join(root, file))
-                    st.write(f"- All files in repo: {all_files[:10]}")  # Show first 10
-                except Exception as e:
-                    st.write(f"- Error listing files: {e}")
+                # Manual file scan for debugging
+                if st.button("🔍 Debug Scan Files"):
+                    debug_files = []
+                    try:
+                        for root, dirs, files in os.walk('.'):
+                            if not root.startswith('.'):
+                                for file in files:
+                                    if not file.startswith('.') and file != 'requirements.txt':
+                                        debug_files.append(os.path.join(root, file))
+                        st.write(f"- All files found: {debug_files[:20]}")  # Show first 20
+                        
+                        # Check specifically for document files
+                        doc_files = [f for f in debug_files if f.lower().endswith(('.pdf', '.txt', '.csv', '.xlsx', '.xls', '.docx'))]
+                        st.write(f"- Document files: {doc_files}")
+                        
+                    except Exception as e:
+                        st.write(f"- Error during debug scan: {e}")
+                
+                # Create test file button
+                if st.button("📝 Create Test Document"):
+                    try:
+                        test_content = """# Test Document
+
+This is a test document created to verify the RAG system is working properly.
+
+## Sample Content
+
+This document contains sample text that can be used for testing:
+- Information retrieval
+- Vector embeddings
+- Question answering
+
+The system should be able to find and use this content when answering questions about test documents.
+"""
+                        with open("test_document.txt", "w", encoding="utf-8") as f:
+                            f.write(test_content)
+                        st.success("✅ Created test_document.txt")
+                        time.sleep(1)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error creating test file: {e}")
             
             # Show loading progress
             if st.session_state.auto_load_attempted and not st.session_state.documents_processed:
@@ -1432,8 +1550,16 @@ def main():
                     <div class="bold-text">💾 Smart Caching:</div>
                     - Automatic vector caching
                     - Fast reload for same documents
+                    - ChromaDB persistent storage
                     - Cache cleanup and management
                     - Persistent storage across sessions
+                    
+                    <div class="bold-text">🗃️ ChromaDB Features:</div>
+                    - 💾 Persistent storage - data survives restarts
+                    - 🚀 Fast similarity search
+                    - 📊 Rich metadata support
+                    - 🔄 CRUD operations support
+                    - 🌐 REST API ready
                     
                     <div class="bold-text">📊 File Types Supported:</div>
                     - 📄 PDF files
@@ -1465,8 +1591,16 @@ def main():
                     <div class="bold-text">💾 Smart Caching:</div>
                     - Cache vectors อัตโนมัติ
                     - โหลดเร็วสำหรับเอกสารเดิม
+                    - ChromaDB เก็บข้อมูลถาวร
                     - ทำความสะอาดและจัดการ cache
                     - เก็บข้อมูลถาวรข้ามเซสชั่น
+                    
+                    <div class="bold-text">🗃️ ฟีเจอร์ ChromaDB:</div>
+                    - 💾 เก็บข้อมูลถาวร - อยู่ได้หลัง restart
+                    - 🚀 ค้นหาความคล้ายเร็ว
+                    - 📊 รองรับ metadata ที่ซับซ้อน
+                    - 🔄 รองรับ CRUD operations
+                    - 🌐 พร้อม REST API
                     
                     <div class="bold-text">📊 ประเภทไฟล์ที่รองรับ:</div>
                     - 📄 ไฟล์ PDF
