@@ -1063,17 +1063,17 @@ def main():
 
         t = translations[st.session_state.language]
 
-        # Enhanced CSS with compact styling - removed large white space
+        # Enhanced CSS with compact styling - fixed navbar overlap
         st.markdown("""
             <style>
             .main .block-container {
                 max-width: 1200px;
-                padding-top: 1rem;
+                padding-top: 5rem;
                 padding-bottom: 1rem;
             }
             @media (max-width: 768px) {
                 .main .block-container {
-                    padding-top: 0.5rem;
+                    padding-top: 4rem;
                     padding-bottom: 1rem;
                     padding-left: 1rem;
                     padding-right: 1rem;
@@ -1082,7 +1082,7 @@ def main():
             .stTitle {
                 text-align: center;
                 color: #1f77b4;
-                margin-top: 0.5rem;
+                margin-top: 0rem;
                 margin-bottom: 1rem;
                 font-size: 2rem !important;
                 font-weight: 700;
@@ -1149,40 +1149,30 @@ def main():
                 margin-bottom: 0.5rem;
                 min-height: 40vh;
             }
-            .no-documents-container {
-                background: #f8f9fa;
-                border-radius: 8px;
-                padding: 1rem;
-                margin: 0.5rem 0;
-                border: 1px solid #dee2e6;
-            }
-            .loading-status {
+            .status-only {
                 padding: 0.5rem;
                 margin: 0.2rem 0;
                 border-radius: 6px;
-                background: #fff3cd;
-                border: 1px solid #ffeaa7;
+                background: #f8f9fa;
+                border: 1px solid #dee2e6;
             }
-            @media (max-width: 768px) {
-                .chat-container {
-                    margin-bottom: 0.5rem;
-                    padding: 0.8rem;
-                    min-height: 35vh;
-                }
+            .error-status {
+                padding: 0.8rem;
+                margin: 0.5rem 0;
+                border-radius: 6px;
+                background: #f8d7da;
+                border: 1px solid #f5c6cb;
+                color: #721c24;
             }
             .status-columns {
                 margin: 0.5rem 0;
-            }
-            .compact-info {
-                padding: 0.3rem 0;
-                margin: 0.2rem 0;
             }
             .footer {
                 display: none;
             }
             /* Hide Streamlit default padding */
             .block-container {
-                padding-top: 1rem !important;
+                padding-top: 5rem !important;
                 padding-bottom: 0.5rem !important;
             }
             /* Compact status indicators */
