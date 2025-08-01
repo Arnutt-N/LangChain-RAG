@@ -1022,18 +1022,18 @@ def main():
 
         t = translations[st.session_state.language]
 
-        # Enhanced CSS with better styling
+        # Enhanced CSS with compact styling - removed large white space
         st.markdown("""
             <style>
             .main .block-container {
                 max-width: 1200px;
-                padding-top: 4rem;
-                padding-bottom: 2rem;
+                padding-top: 1rem;
+                padding-bottom: 1rem;
             }
             @media (max-width: 768px) {
                 .main .block-container {
-                    padding-top: 3.5rem;
-                    padding-bottom: 2rem;
+                    padding-top: 0.5rem;
+                    padding-bottom: 1rem;
                     padding-left: 1rem;
                     padding-right: 1rem;
                 }
@@ -1041,29 +1041,29 @@ def main():
             .stTitle {
                 text-align: center;
                 color: #1f77b4;
-                margin-top: 1.5rem;
-                margin-bottom: 2rem;
-                font-size: 2.5rem !important;
+                margin-top: 0.5rem;
+                margin-bottom: 1rem;
+                font-size: 2rem !important;
                 font-weight: 700;
-                line-height: 1.4 !important;
-                padding: 1rem 0;
+                line-height: 1.3 !important;
+                padding: 0.5rem 0;
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                min-height: 5rem;
+                min-height: 3rem;
                 position: relative;
                 z-index: 10;
             }
             .title-emoji {
-                font-size: 3.2rem;
-                margin-right: 0.6rem;
+                font-size: 2.5rem;
+                margin-right: 0.4rem;
                 filter: none;
                 background: none;
                 line-height: 1;
                 display: inline-block;
                 vertical-align: middle;
-                padding: 0.3rem;
-                margin-top: -0.2rem;
+                padding: 0.2rem;
+                margin-top: -0.1rem;
             }
             .title-text {
                 background: linear-gradient(90deg, #1f77b4, #2ca02c);
@@ -1071,37 +1071,29 @@ def main():
                 -webkit-text-fill-color: transparent;
                 background-clip: text;
                 font-weight: 700;
-                line-height: 1.3;
+                line-height: 1.2;
                 display: inline-block;
                 vertical-align: middle;
-                padding: 0.2rem 0;
-            }
-            .metric-card {
-                background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-                border: 1px solid #dee2e6;
-                border-radius: 12px;
-                padding: 1.2rem;
-                margin: 0.5rem 0;
-                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                padding: 0.1rem 0;
             }
             .model-info {
                 background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
                 border-left: 4px solid #2196f3;
-                padding: 1rem;
+                padding: 0.8rem;
                 border-radius: 8px;
-                margin: 1rem 0;
-                font-size: 0.95rem;
-                line-height: 1.6;
+                margin: 0.5rem 0;
+                font-size: 0.9rem;
+                line-height: 1.4;
             }
             .model-info .emoji {
-                font-size: 1.2rem;
-                margin-right: 0.3rem;
+                font-size: 1.1rem;
+                margin-right: 0.2rem;
                 filter: none;
                 background: none;
                 line-height: 1;
                 display: inline-block;
                 vertical-align: middle;
-                padding: 0.1rem;
+                padding: 0.05rem;
             }
             .model-info .bold-text {
                 font-weight: 700;
@@ -1112,66 +1104,35 @@ def main():
                 background: #fafafa;
                 border-radius: 12px;
                 padding: 1rem;
-                margin-top: 1rem;
-                margin-bottom: 1rem;
-                min-height: 50vh;
+                margin-top: 0.5rem;
+                margin-bottom: 0.5rem;
+                min-height: 40vh;
             }
             @media (max-width: 768px) {
                 .chat-container {
-                    margin-bottom: 1rem;
+                    margin-bottom: 0.5rem;
                     padding: 0.8rem;
+                    min-height: 35vh;
                 }
             }
-            .welcome-card {
-                background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%);
-                border: 2px solid #ff9800;
-                border-radius: 16px;
-                padding: 1.5rem;
-                margin: 1.5rem 0 2rem 0;
-                text-align: center;
-                box-shadow: 0 4px 12px rgba(255, 152, 0, 0.2);
+            .status-columns {
+                margin: 0.5rem 0;
             }
-            .welcome-card h3 {
-                font-size: 1.2rem;
-                margin-bottom: 0.5rem;
-                color: #f57c00;
-            }
-            .welcome-card p {
-                font-size: 1rem;
-                margin: 0;
-                color: #ef6c00;
-            }
-            @media (max-width: 768px) {
-                .welcome-card {
-                    padding: 1rem;
-                    margin: 1rem 0 1.5rem 0;
-                }
-                .welcome-card h3 {
-                    font-size: 1.1rem;
-                }
-                .welcome-card p {
-                    font-size: 0.9rem;
-                }
-            }
-            .status-badge {
-                display: inline-block;
-                padding: 0.3rem 0.8rem;
-                border-radius: 20px;
-                font-size: 0.8rem;
-                font-weight: 600;
-                margin: 0.2rem;
-            }
-            .status-ready {
-                background-color: #d4edda;
-                color: #155724;
-                border: 1px solid #c3e6cb;
-                padding: 0.5rem 1rem;
-                border-radius: 6px;
-                margin: 1rem 0;
-                font-weight: 600;
+            .compact-info {
+                padding: 0.3rem 0;
+                margin: 0.2rem 0;
             }
             .footer {
                 display: none;
+            }
+            /* Hide Streamlit default padding */
+            .block-container {
+                padding-top: 1rem !important;
+                padding-bottom: 0.5rem !important;
+            }
+            /* Compact status indicators */
+            .stColumns > div {
+                padding: 0.2rem;
             }
             </style>
         """, unsafe_allow_html=True)
@@ -1191,25 +1152,25 @@ def main():
         # Model info with better styling - updated to show FAISS
         st.markdown(f'<div class="model-info">{t["model_info"]}</div>', unsafe_allow_html=True)
 
-        # Document loading status
+        # Document loading status - compact version
         col1, col2, col3 = st.columns(3)
         with col1:
             if st.session_state.local_files:
-                st.success(f"📁 {len(st.session_state.local_files)} local files found")
+                st.success(f"📁 {len(st.session_state.local_files)} files")
             else:
-                st.info("📁 No local files")
+                st.info("📁 No files")
                 
         with col2:
             if st.session_state.documents_processed and st.session_state.vectorstore:
-                st.success(f"🗃️ FAISS ready ({st.session_state.document_chunks} chunks)")
+                st.success(f"🗃️ FAISS ({st.session_state.document_chunks})")
             else:
-                st.warning("🗃️ FAISS not ready")
+                st.warning("🗃️ Not ready")
                 
         with col3:
             if st.session_state.initialization_complete:
                 # Show current model
-                current_model = "Mistral Large" if st.session_state.selected_model == "mistral" else "Gemini Flash"
-                st.success(f"✅ {current_model} ready")
+                current_model = "Mistral" if st.session_state.selected_model == "mistral" else "Gemini"
+                st.success(f"✅ {current_model}")
             else:
                 st.info("⏳ Loading...")
 
@@ -1442,151 +1403,87 @@ def main():
             st.markdown('</div>', unsafe_allow_html=True)
 
         else:
-            # Simple info without welcome card
-            st.info("📄 No documents processed yet. System is loading or waiting for file upload.")
+            # Compact info without large empty space
+            st.markdown("📄 **Status:** Loading documents or waiting for upload...")
             
-            # Show debug info about file scanning
+            # Show debug info about file scanning - more compact
             if st.session_state.debug_mode:
-                st.write("**Debug Info:**")
-                st.write(f"- Auto load attempted: {st.session_state.auto_load_attempted}")
-                st.write(f"- Local files found: {len(st.session_state.local_files)}")
-                st.write(f"- Local files: {st.session_state.local_files}")
-                st.write(f"- Documents processed: {st.session_state.documents_processed}")
-                st.write(f"- Current directory: {os.getcwd()}")
-                
-                # Manual file scan for debugging
-                if st.button("🔍 Debug Scan Files"):
-                    debug_files = []
-                    try:
-                        for root, dirs, files in os.walk('.'):
-                            if not root.startswith('.'):
-                                for file in files:
-                                    if not file.startswith('.') and file != 'requirements.txt':
-                                        debug_files.append(os.path.join(root, file))
-                        st.write(f"- All files found: {debug_files[:20]}")  # Show first 20
-                        
-                        # Check specifically for document files
-                        doc_files = [f for f in debug_files if f.lower().endswith(('.pdf', '.txt', '.csv', '.xlsx', '.xls', '.docx'))]
-                        st.write(f"- Document files: {doc_files}")
-                        
-                    except Exception as e:
-                        st.write(f"- Error during debug scan: {e}")
-                
-                # Create test file button
-                if st.button("📝 Create Test Document"):
-                    try:
-                        test_content = """# Test Document
+                with st.expander("🔍 Debug Info", expanded=False):
+                    st.write(f"- Auto load: {st.session_state.auto_load_attempted}")
+                    st.write(f"- Local files: {len(st.session_state.local_files)}")
+                    st.write(f"- Processed: {st.session_state.documents_processed}")
+                    st.write(f"- Directory: {os.getcwd()}")
+                    
+                    # Manual file scan for debugging
+                    if st.button("🔍 Debug Scan"):
+                        debug_files = []
+                        try:
+                            for root, dirs, files in os.walk('.'):
+                                if not root.startswith('.'):
+                                    for file in files:
+                                        if not file.startswith('.'):
+                                            debug_files.append(os.path.join(root, file))
+                            st.write(f"- All files: {debug_files[:10]}")  # Show first 10
+                            
+                            # Check specifically for document files
+                            doc_files = [f for f in debug_files if f.lower().endswith(('.pdf', '.txt', '.csv', '.xlsx', '.xls', '.docx'))]
+                            st.write(f"- Documents: {doc_files}")
+                            
+                        except Exception as e:
+                            st.write(f"- Error: {e}")
+                    
+                    # Create test file button
+                    if st.button("📝 Create Test File"):
+                        try:
+                            test_content = """# Test Document for RAG System
 
-This is a test document created to verify the RAG system is working properly.
+This document tests the RAG chatbot functionality.
 
-## Sample Content
-
-This document contains sample text that can be used for testing:
-- Information retrieval
-- Vector embeddings
+## Key Features
+- Document loading
+- Vector embeddings  
 - Question answering
+- Source retrieval
 
-The system should be able to find and use this content when answering questions about test documents.
+Use this content to verify the system works correctly.
 """
-                        with open("test_document.txt", "w", encoding="utf-8") as f:
-                            f.write(test_content)
-                        st.success("✅ Created test_document.txt")
-                        time.sleep(1)
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Error creating test file: {e}")
+                            with open("test_document.txt", "w", encoding="utf-8") as f:
+                                f.write(test_content)
+                            st.success("✅ Created test_document.txt")
+                            time.sleep(1)
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error: {e}")
             
-            # Show loading progress
+            # Show loading progress - compact
             if st.session_state.auto_load_attempted and not st.session_state.documents_processed:
                 if st.session_state.local_files:
-                    st.warning(f"⚠️ Found {len(st.session_state.local_files)} local files but processing failed. Try reloading.")
+                    st.warning(f"⚠️ Found {len(st.session_state.local_files)} files but processing failed.")
                 else:
-                    st.info("💡 No local files found. Upload documents using the sidebar.")
+                    st.info("💡 No local files found. Upload documents via sidebar.")
             
-            # Help section
-            with st.expander("ℹ️ How to use / วิธีใช้งาน", expanded=False):
+            # Compact help section
+            with st.expander("ℹ️ Quick Help", expanded=False):
                 if st.session_state.language == "en":
                     st.markdown("""
-                    <div class="bold-text">🚀 Gen AI RAG Chatbot with FAISS:</div>
+                    **🚀 Quick Start:**
+                    - Auto-detects PDF, TXT, CSV, XLSX files in repository
+                    - Upload additional files via sidebar
+                    - Uses Gemini Flash + FAISS for fast search
+                    - Smart caching for quick reloads
                     
-                    <div class="bold-text">📁 Auto-Detection:</div>
-                    - Automatically scans repository for PDF, TXT, CSV, XLSX files
-                    - Respects .gitignore patterns
-                    - Loads documents on startup
-                    
-                    <div class="bold-text">📤 Additional Upload:</div>
-                    - Upload more documents using the sidebar
-                    - Combines with auto-detected files
-                    - Smart caching for fast reloads
-                    
-                    <div class="bold-text">🤖 AI Features:</div>
-                    - Gemini Flash language model
-                    - MiniLM-L6-v2 embeddings for semantic search
-                    - Adjustable similarity threshold
-                    - Configurable response parameters
-                    
-                    <div class="bold-text">💾 Smart Caching:</div>
-                    - Automatic vector caching with FAISS
-                    - Fast reload for same documents
-                    - FAISS local storage
-                    - Cache cleanup and management
-                    - Persistent storage across sessions
-                    
-                    <div class="bold-text">🗃️ FAISS Features:</div>
-                    - 💾 Fast similarity search
-                    - 🚀 Efficient memory usage
-                    - 📊 Local file storage
-                    - 🔄 CPU optimized
-                    - 🌐 No external dependencies
-                    
-                    <div class="bold-text">📊 File Types Supported:</div>
-                    - 📄 PDF files
-                    - 📝 Text files (.txt)
-                    - 📊 CSV files
-                    - 📈 Excel files (.xlsx, .xls)
-                    - 📄 Word documents (.docx)
-                    """, unsafe_allow_html=True)
+                    **📊 Supported Files:** PDF, TXT, CSV, XLSX, DOCX
+                    """)
                 else:
                     st.markdown("""
-                    <div class="bold-text">🚀 Gen AI RAG Chatbot พร้อม FAISS:</div>
+                    **🚀 เริ่มต้นใช้งาน:**
+                    - ตรวจจับไฟล์ PDF, TXT, CSV, XLSX อัตโนมัติ
+                    - อัปโหลดไฟล์เพิ่มผ่านแถบด้านข้าง
+                    - ใช้ Gemini Flash + FAISS ค้นหาเร็ว
+                    - ระบบ cache อัจฉริยะ
                     
-                    <div class="bold-text">📁 การตรวจจับอัตโนมัติ:</div>
-                    - สแกนหาไฟล์ PDF, TXT, CSV, XLSX ใน repository อัตโนมัติ
-                    - เคารพรูปแบบ .gitignore
-                    - โหลดเอกสารตอนเริ่มต้น
-                    
-                    <div class="bold-text">📤 อัปโหลดเพิ่มเติม:</div>
-                    - อัปโหลดเอกสารเพิ่มผ่านแถบด้านข้าง
-                    - รวมกับไฟล์ที่ตรวจจับอัตโนมัติ
-                    - Smart caching สำหรับโหลดเร็ว
-                    
-                    <div class="bold-text">🤖 ฟีเจอร์ AI:</div>
-                    - โมเดลภาษา Gemini Flash
-                    - MiniLM-L6-v2 embeddings สำหรับค้นหาความหมาย
-                    - ปรับระดับความคล้ายได้
-                    - ตั้งค่าพารามิเตอร์การตอบได้
-                    
-                    <div class="bold-text">💾 Smart Caching:</div>
-                    - Cache vectors อัตโนมัติด้วย FAISS
-                    - โหลดเร็วสำหรับเอกสารเดิม
-                    - FAISS local storage
-                    - ทำความสะอาดและจัดการ cache
-                    - เก็บข้อมูลถาวรข้ามเซสชั่น
-                    
-                    <div class="bold-text">🗃️ ฟีเจอร์ FAISS:</div>
-                    - 💾 ค้นหาความคล้ายเร็ว
-                    - 🚀 ใช้หน่วยความจำอย่างมีประสิทธิภาพ
-                    - 📊 เก็บข้อมูลในไฟล์ local
-                    - 🔄 เหมาะสำหรับ CPU
-                    - 🌐 ไม่ต้องพึ่ง dependencies ภายนอก
-                    
-                    <div class="bold-text">📊 ประเภทไฟล์ที่รองรับ:</div>
-                    - 📄 ไฟล์ PDF
-                    - 📝 ไฟล์ข้อความ (.txt)
-                    - 📊 ไฟล์ CSV
-                    - 📈 ไฟล์ Excel (.xlsx, .xls)
-                    - 📄 เอกสาร Word (.docx)
-                    """, unsafe_allow_html=True)
+                    **📊 ไฟล์ที่รองรับ:** PDF, TXT, CSV, XLSX, DOCX
+                    """)
 
         # Always show chat input area at the bottom
         st.markdown('<div style="margin-top: 2rem;"></div>', unsafe_allow_html=True)
