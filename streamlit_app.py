@@ -1141,14 +1141,6 @@ def main():
                 color: #1976d2;
                 vertical-align: middle;
             }
-            .chat-container-active {
-                background: #fafafa;
-                border-radius: 12px;
-                padding: 1rem;
-                margin-top: 0.5rem;
-                margin-bottom: 0.5rem;
-                min-height: 20vh;
-            }
             .status-only {
                 padding: 0.5rem;
                 margin: 0.2rem 0;
@@ -1271,18 +1263,17 @@ def main():
             # Reload local files button
             if st.button(t["reload_local"], use_container_width=True):
                 try:
-                    # Clear session state
+                    # Clear session state without rerun
                     st.session_state.local_files = []
                     st.session_state.auto_load_attempted = False
                     st.session_state.documents_processed = False
                     st.session_state.vectorstore = None
                     st.session_state.show_loading_messages = True
                     st.session_state.initialization_complete = False
-                    # Reset app state to allow messages to show again
+                    st.session_state.document_chunks = 0
+                    # Reset app state
                     save_app_state({"initialized": False, "last_load": 0})
-                    st.success("🔄 Reloading...")
-                    time.sleep(0.5)
-                    st.rerun()
+                    st.success("🔄 Settings reset! Please refresh page (F5) to reload documents.")
                 except Exception as e:
                     st.error(f"Reload error: {e}")
 
@@ -1374,8 +1365,7 @@ def main():
             if st.session_state.documents_processed and st.session_state.document_chunks > 0:
                 if st.button(t["clear_chat"], use_container_width=True):
                     st.session_state.messages = []
-                    st.success("✅ Chat cleared!")
-                    st.rerun()
+                    st.success("✅ Chat cleared! Continue chatting below.")
             
             if st.button("🗑️ Clear FAISS Cache", use_container_width=True):
                 try:
@@ -1390,9 +1380,7 @@ def main():
                     st.session_state.show_loading_messages = True
                     # Reset app state
                     save_app_state({"initialized": False, "last_load": 0})
-                    st.success("✅ FAISS cache cleared!")
-                    time.sleep(0.5)
-                    st.rerun()
+                    st.success("✅ FAISS cache cleared! Refresh page (F5) to reload documents.")
                 except Exception as e:
                     st.error(f"Error clearing FAISS cache: {e}")
             
@@ -1582,7 +1570,7 @@ Use this content to verify the system works correctly.
                 # Clear all session state
                 for key in list(st.session_state.keys()):
                     del st.session_state[key]
-                st.rerun()
+                st.success("✅ Application reset! Refresh page (F5) to restart.")
         
         with col2:
             if st.button("📝 Report Issue", key="report_issue"):
