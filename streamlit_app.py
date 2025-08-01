@@ -15,7 +15,7 @@ load_dotenv()
 # Set page configuration FIRST
 st.set_page_config(
     layout="wide", 
-    page_title="Advanced RAG Chatbot",
+    page_title="Gen AI : RAG Chatbot with Documents (Demo)",
     page_icon="🤖",
     initial_sidebar_state="expanded"
 )
@@ -171,7 +171,7 @@ def save_app_state(state):
 # Translations
 translations = {
     "en": {
-        "title": "🤖 Advanced RAG Chatbot",
+        "title": "🤖 Gen AI : RAG Chatbot with Documents (Demo)",
         "upload_button": "Upload Additional Documents",
         "ask_placeholder": "Ask a question in Thai or English...",
         "processing": "Processing documents...",
@@ -182,7 +182,7 @@ translations = {
         "clear_chat": "🗑️ Clear Chat",
         "clear_cache": "🗑️ Clear Cache",
         "reload_local": "🔄 Reload Local Files",
-        "model_info": '<span class="emoji">🤖</span><span class="bold-text">Model:</span> Gemini Pro / Mistral Large | <span class="emoji">📊</span><span class="bold-text">Embedding:</span> MiniLM-L6-v2 | <span class="emoji">🗃️</span><span class="bold-text">Vector DB:</span> FAISS',
+        "model_info": '<span class="emoji">🤖</span><span class="bold-text">Model:</span> Gemini Flash / Mistral Large | <span class="emoji">📊</span><span class="bold-text">Embedding:</span> MiniLM-L6-v2 | <span class="emoji">🗃️</span><span class="bold-text">Vector DB:</span> FAISS',
         "no_documents": "📄 No documents found. Please check the repository or upload files.",
         "error_processing": "❌ Error processing documents. Please try again.",
         "error_response": "🚨 Sorry, I encountered an error while generating response.",
@@ -200,7 +200,7 @@ translations = {
         "loading_complete": "Loading complete",
     },
     "th": {
-        "title": "🤖 แชทบอท RAG ขั้นสูง",
+        "title": "🤖 Gen AI : RAG แชทกับเอกสาร (ตัวอย่าง)",
         "upload_button": "อัปโหลดเอกสารเพิ่มเติม",
         "ask_placeholder": "ถามคำถามเป็นภาษาไทยหรืออังกฤษ...",
         "processing": "กำลังประมวลผลเอกสาร...",
@@ -211,7 +211,7 @@ translations = {
         "clear_chat": "🗑️ ล้างการแชท",
         "clear_cache": "🗑️ ล้าง Cache",
         "reload_local": "🔄 โหลดไฟล์ local ใหม่",
-        "model_info": '<span class="emoji">🤖</span><span class="bold-text">โมเดล:</span> Gemini Pro / Mistral Large | <span class="emoji">📊</span><span class="bold-text">Embedding:</span> MiniLM-L6-v2 | <span class="emoji">🗃️</span><span class="bold-text">Vector DB:</span> FAISS',
+        "model_info": '<span class="emoji">🤖</span><span class="bold-text">โมเดล:</span> Gemini Flash / Mistral Large | <span class="emoji">📊</span><span class="bold-text">Embedding:</span> MiniLM-L6-v2 | <span class="emoji">🗃️</span><span class="bold-text">Vector DB:</span> FAISS',
         "no_documents": "📄 ไม่พบเอกสาร กรุณาตรวจสอบ repository หรืออัปโหลดไฟล์",
         "error_processing": "❌ เกิดข้อผิดพลาดในการประมวลผลเอกสาร",
         "error_response": "🚨 ขออภัย เกิดข้อผิดพลาดในการสร้างคำตอบ",
@@ -286,8 +286,8 @@ def should_ignore_file(filepath, patterns):
     """Check if file should be ignored based on patterns"""
     filename = os.path.basename(filepath)
     
-    # Always ignore these
-    if filename.startswith('.') or filename == 'requirements.txt':
+    # Always ignore these (removed requirements.txt from auto-ignore)
+    if filename.startswith('.'):
         return True
     
     for pattern in patterns:
@@ -301,6 +301,11 @@ def scan_local_files():
     supported_extensions = ('.pdf', '.txt', '.csv', '.xlsx', '.xls', '.docx')
     local_files = []
     ignore_patterns = load_gitignore_patterns()
+    
+    # Add requirements.txt to ignore patterns specifically
+    ignore_patterns.append('requirements.txt')
+    ignore_patterns.append('streamlit_app.py')
+    ignore_patterns.append('*.py')
     
     try:
         current_dir = os.getcwd()
@@ -840,7 +845,7 @@ def setup_advanced_retrieval_chain():
         else:
             # Default to Gemini model with full LangChain integration
             llm = ChatGoogleGenerativeAI(
-                model="gemini-pro",
+                model="gemini-1.5-flash-latest",
                 temperature=st.session_state.temperature,
                 max_tokens=st.session_state.max_tokens,
                 google_api_key=GOOGLE_API_KEY,
@@ -1203,7 +1208,7 @@ def main():
         with col3:
             if st.session_state.initialization_complete:
                 # Show current model
-                current_model = "Mistral Large" if st.session_state.selected_model == "mistral" else "Gemini Pro"
+                current_model = "Mistral Large" if st.session_state.selected_model == "mistral" else "Gemini Flash"
                 st.success(f"✅ {current_model} ready")
             else:
                 st.info("⏳ Loading...")
@@ -1229,7 +1234,7 @@ def main():
             st.markdown(f'<div class="emoji-text"><span class="emoji-inline">🤖</span><span class="bold-text">AI Model</span></div>', unsafe_allow_html=True)
             available_models = []
             if GOOGLE_API_KEY:
-                available_models.append("Gemini Pro")
+                available_models.append("Gemini Flash")
             if MISTRAL_API_KEY and MISTRAL_AVAILABLE:
                 available_models.append("Mistral Large")
             
@@ -1241,7 +1246,6 @@ def main():
                     label_visibility="collapsed"
                 )
                 
-                # Update selected model
                 if model_choice == "Mistral Large":
                     st.session_state.selected_model = "mistral"
                 else:
@@ -1503,7 +1507,7 @@ The system should be able to find and use this content when answering questions 
             with st.expander("ℹ️ How to use / วิธีใช้งาน", expanded=False):
                 if st.session_state.language == "en":
                     st.markdown("""
-                    <div class="bold-text">🚀 Advanced RAG Chatbot with FAISS:</div>
+                    <div class="bold-text">🚀 Gen AI RAG Chatbot with FAISS:</div>
                     
                     <div class="bold-text">📁 Auto-Detection:</div>
                     - Automatically scans repository for PDF, TXT, CSV, XLSX files
@@ -1516,7 +1520,7 @@ The system should be able to find and use this content when answering questions 
                     - Smart caching for fast reloads
                     
                     <div class="bold-text">🤖 AI Features:</div>
-                    - Gemini Pro language model
+                    - Gemini Flash language model
                     - MiniLM-L6-v2 embeddings for semantic search
                     - Adjustable similarity threshold
                     - Configurable response parameters
@@ -1544,7 +1548,7 @@ The system should be able to find and use this content when answering questions 
                     """, unsafe_allow_html=True)
                 else:
                     st.markdown("""
-                    <div class="bold-text">🚀 Advanced RAG Chatbot พร้อม FAISS:</div>
+                    <div class="bold-text">🚀 Gen AI RAG Chatbot พร้อม FAISS:</div>
                     
                     <div class="bold-text">📁 การตรวจจับอัตโนมัติ:</div>
                     - สแกนหาไฟล์ PDF, TXT, CSV, XLSX ใน repository อัตโนมัติ
@@ -1557,7 +1561,7 @@ The system should be able to find and use this content when answering questions 
                     - Smart caching สำหรับโหลดเร็ว
                     
                     <div class="bold-text">🤖 ฟีเจอร์ AI:</div>
-                    - โมเดลภาษา Gemini Pro
+                    - โมเดลภาษา Gemini Flash
                     - MiniLM-L6-v2 embeddings สำหรับค้นหาความหมาย
                     - ปรับระดับความคล้ายได้
                     - ตั้งค่าพารามิเตอร์การตอบได้
