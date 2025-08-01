@@ -1,5 +1,5 @@
 # =============================================================================
-# ADVANCED RAG CHATBOT REQUIREMENTS - FAISS Version
+# GEN AI RAG CHATBOT WITH DOCUMENTS (DEMO) - FAISS Version
 # =============================================================================
 
 # Core Streamlit and Environment
@@ -80,6 +80,7 @@ packaging==24.1
 #
 # 4. Key Changes from ChromaDB version:
 #    - Replaced chromadb with faiss-cpu (eliminates SQLite conflicts)
+#    - Updated to use Gemini Flash (gemini-1.5-flash-latest)
 #    - Reduced torch version for better compatibility
 #    - Added typing-extensions for Python compatibility
 #    - Simplified unstructured package installation
@@ -99,5 +100,16 @@ packaging==24.1
 #    - FAISS uses less memory than ChromaDB
 #    - Better performance for similarity search
 #    - No persistent database files (uses local cache instead)
+#
+# 8. Model Updates:
+#    - Using Gemini Flash instead of Gemini Pro (faster, cheaper)
+#    - Mistral Large support for alternative AI model
+#    - MiniLM-L6-v2 embeddings for semantic search
+#
+# 9. Performance Features:
+#    - Smart caching system with FAISS
+#    - Auto file detection from repository
+#    - Excludes system files (requirements.txt, .py files)
+#    - Respects .gitignore patterns
 #
 # =============================================================================
