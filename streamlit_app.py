@@ -461,118 +461,84 @@ def create_faiss_vectorstore(texts, embeddings):
         return None
 
 def load_single_local_file(filepath: str) -> List[Document]:
-    """Load a single local file with very detailed debugging"""
+    """Load a single local file - work silently unless debug mode"""
     try:
         file_extension = Path(filepath).suffix.lower()
         filename = os.path.basename(filepath)
         
-        # Always show debug info when processing
-        st.write(f"🔄 Processing: **{filename}**")
+        # Only show debug info if debug mode is on
+        debug_mode = st.session_state.get('debug_mode', False)
         
-        try:
-            file_size = os.path.getsize(filepath)
-            st.write(f"   📏 Size: {file_size:,} bytes")
-        except:
-            st.error(f"   ❌ Cannot get file size")
-            return []
-        
-        st.write(f"   📝 Extension: {file_extension}")
-        
-        # Check if file is readable
-        try:
-            with open(filepath, 'rb') as f:
-                first_bytes = f.read(100)
-                st.write(f"   🔍 First bytes readable: ✅")
-        except Exception as e:
-            st.error(f"   ❌ Cannot read file: {e}")
-            return []
+        if debug_mode:
+            st.write(f"🔄 Processing: **{filename}**")
         
         # Use appropriate loader based on file type
         if file_extension == '.pdf':
-            st.write(f"   📄 Using PyPDFLoader")
             loader = PyPDFLoader(filepath)
         elif file_extension == '.csv':
-            st.write(f"   📊 Using CSVLoader")
             loader = CSVLoader(filepath)
         elif file_extension in ['.txt', '.md']:
-            st.write(f"   📝 Using TextLoader")
             loader = TextLoader(filepath, encoding='utf-8')
         elif file_extension in ['.xlsx', '.xls']:
-            st.write(f"   📈 Using UnstructuredExcelLoader")
             loader = UnstructuredExcelLoader(filepath)
         elif file_extension == '.docx':
             try:
                 from langchain_community.document_loaders import UnstructuredWordDocumentLoader
-                st.write(f"   📄 Using UnstructuredWordDocumentLoader")
                 loader = UnstructuredWordDocumentLoader(filepath)
             except:
-                st.error(f"   ❌ UnstructuredWordDocumentLoader not available")
+                if debug_mode:
+                    st.error(f"   ❌ UnstructuredWordDocumentLoader not available")
                 return []
         else:
-            st.warning(f"   ⚠️ Unsupported file type: {file_extension}")
+            if debug_mode:
+                st.warning(f"   ⚠️ Unsupported file type: {file_extension}")
             return []
         
-        # Load documents with error handling
-        try:
-            st.write(f"   🔄 Loading with {loader.__class__.__name__}...")
-            docs = loader.load()
-            st.write(f"   ✅ Loaded {len(docs)} raw documents")
-        except Exception as e:
-            st.error(f"   ❌ Loader failed: {e}")
-            return []
-
+        # Load documents
+        docs = loader.load()
+        
         if not docs:
-            st.error(f"   ❌ No documents returned from loader")
+            if debug_mode:
+                st.error(f"   ❌ No documents loaded from {filename}")
             return []
         
-        # Process documents with very liberal filtering
+        # Process documents with liberal filtering
         cleaned_docs = []
         
         for i, doc in enumerate(docs):
-            st.write(f"   📋 Processing document {i+1}...")
-            
-            if not hasattr(doc, 'page_content'):
-                st.warning(f"      ⚠️ Document {i+1} has no page_content attribute")
-                continue
+            if hasattr(doc, 'page_content') and doc.page_content:
+                content = str(doc.page_content).strip()
                 
-            if doc.page_content is None:
-                st.warning(f"      ⚠️ Document {i+1} page_content is None")
-                continue
-            
-            content = str(doc.page_content).strip()
-            content_length = len(content)
-            
-            st.write(f"      📏 Content length: {content_length} characters")
-            
-            if content_length > 0:  # Accept ANY non-empty content
-                # Show preview
-                preview = content[:100] + ("..." if len(content) > 100 else "")
-                st.write(f"      👀 Preview: {repr(preview)}")
-                
-                # Clean up content slightly but preserve everything
-                content = content.replace('\r\n', '\n').replace('\r', '\n')
-                doc.page_content = content
-                
-                # Enhanced metadata
-                doc.metadata.update({
-                    'source_file': filename,
-                    'file_path': filepath,
-                    'file_hash': get_file_hash(filepath),
-                    'file_type': 'local',
-                    'chunk_id': i,
-                    'content_length': len(content)
-                })
-                cleaned_docs.append(doc)
-                
-                st.write(f"      ✅ Document {i+1} accepted ({len(content)} chars)")
-            else:
-                st.warning(f"      ⚠️ Document {i+1} is empty - skipped")
+                # Accept any non-empty content
+                if len(content) > 0:
+                    # Clean up content
+                    content = content.replace('\r\n', '\n').replace('\r', '\n')
+                    doc.page_content = content
+                    
+                    # Enhanced metadata
+                    doc.metadata.update({
+                        'source_file': filename,
+                        'file_path': filepath,
+                        'file_hash': get_file_hash(filepath),
+                        'file_type': 'local',
+                        'chunk_id': i,
+                        'content_length': len(content)
+                    })
+                    cleaned_docs.append(doc)
+                    
+                    if debug_mode:
+                        st.write(f"   ✅ Document {i+1}: {len(content)} chars")
+                        preview = content[:100] + ("..." if len(content) > 100 else "")
+                        st.write(f"      Preview: {repr(preview)}")
         
-        st.write(f"   📋 Final result: {len(cleaned_docs)} documents from {filename}")
+        if debug_mode:
+            st.write(f"   📋 Final: {len(cleaned_docs)} documents from {filename}")
+        
         return cleaned_docs
         
     except Exception as e:
-        st.error(f"   ❌ Error loading {filepath}: {e}")
+        if st.session_state.get('debug_mode', False):
+            st.error(f"   ❌ Error loading {filepath}: {e}")
         return []
 
 def load_single_uploaded_file(uploaded_file) -> List[Document]:
@@ -697,80 +663,60 @@ def process_all_documents(local_files: List[str], uploaded_files: List, show_pro
         if not all_documents:
             return False
         
-        # Split documents with updated text splitter
+        # Split documents into chunks
         if show_progress and status_text:
-            status_text.text("🔄 Splitting documents into chunks...")
+            status_text.text("🔄 Creating text chunks...")
         if progress_bar:
             progress_bar.progress(0.7)
         
-        # Show document analysis before splitting
-        st.write(f"📋 **Document Analysis:**")
-        st.write(f"   - Total raw documents: {len(all_documents)}")
-        
-        total_chars = sum(len(doc.page_content) for doc in all_documents)
-        st.write(f"   - Total characters: {total_chars:,}")
-        
-        # Use more liberal text splitter settings
+        # Use liberal text splitter settings
         text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=500,  # Smaller chunks
+            chunk_size=500,
             chunk_overlap=50,
             separators=["\n\n", "\n", ". ", " ", ""],
             length_function=len,
-            keep_separator=True  # Keep separators
+            keep_separator=True
         )
         
         texts = text_splitter.split_documents(all_documents)
         
-        st.write(f"   - Text chunks created: {len(texts)}")
-        
         if not texts:
-            st.error("❌ No text chunks created from documents!")
-            # Show why no chunks were created
-            st.write("**Possible reasons:**")
-            st.write("- All documents are empty")
-            st.write("- Documents are too short for chunking")
-            st.write("- Text splitter configuration issue")
+            if st.session_state.get('debug_mode', False):
+                st.error("❌ No text chunks created from documents!")
+                st.write(f"Total documents processed: {len(all_documents)}")
+                total_chars = sum(len(doc.page_content) for doc in all_documents)
+                st.write(f"Total characters: {total_chars:,}")
             return False
-        
-        # Show sample chunk
-        if texts:
-            sample_chunk = texts[0].page_content
-            st.write(f"   - Sample chunk: {repr(sample_chunk[:100])}...")
-            st.write(f"   - Sample chunk length: {len(sample_chunk)} chars")
         
         # Create embeddings and vectorstore
         if show_progress and status_text:
-            status_text.text("📊 Creating embeddings and FAISS index...")
+            status_text.text("📊 Creating FAISS vector store...")
         if progress_bar:
             progress_bar.progress(0.9)
         
-        st.write(f"🧠 **Embeddings & Vector Store:**")
-        
         embeddings = get_embeddings()
         if not embeddings:
-            st.error("❌ Failed to initialize embeddings model!")
+            if st.session_state.get('debug_mode', False):
+                st.error("❌ Failed to initialize embeddings model!")
             return False
-        
-        st.write(f"   - Embeddings model: sentence-transformers/all-MiniLM-L6-v2")
         
         # Create FAISS vector store
         try:
             vectorstore = create_faiss_vectorstore(texts, embeddings)
             if not vectorstore:
-                st.error("❌ Failed to create FAISS vector store!")
+                if st.session_state.get('debug_mode', False):
+                    st.error("❌ Failed to create FAISS vector store!")
                 return False
             
-            st.write(f"   - FAISS index created successfully")
-            st.write(f"   - Vector dimensions: {vectorstore.index.d}")
-            st.write(f"   - Total vectors: {vectorstore.index.ntotal}")
-            
         except Exception as e:
-            st.error(f"❌ FAISS creation failed: {e}")
+            if st.session_state.get('debug_mode', False):
+                st.error(f"❌ FAISS creation failed: {e}")
             return False
         
-        # Save to cache
+        # Save to cache and update session state
         if show_progress and status_text:
-            status_text.text(f"💾 Saving to cache...")
+            status_text.text(f"💾 Finalizing...")
+        
         file_info = {
             "local_files": local_files,
             "uploaded_files": [f.name for f in uploaded_files],
@@ -778,20 +724,12 @@ def process_all_documents(local_files: List[str], uploaded_files: List, show_pro
             "total_chunks": len(texts)
         }
         
-        cache_saved = save_vectors_to_cache(vectorstore, cache_key, file_info)
-        st.write(f"   - Cache saved: {'✅ Yes' if cache_saved else '❌ Failed'}")
+        save_vectors_to_cache(vectorstore, cache_key, file_info)
         
         # Update session state
         st.session_state.vectorstore = vectorstore
         st.session_state.document_chunks = len(texts)
         st.session_state.documents_processed = True
-        
-        # Final summary
-        st.write(f"🎉 **Processing Summary:**")
-        st.write(f"   - Files processed: {len(local_files) + len(uploaded_files)}")
-        st.write(f"   - Raw documents: {len(all_documents)}")
-        st.write(f"   - Text chunks: {len(texts)}")
-        st.write(f"   - Vector store: Ready with {vectorstore.index.ntotal} vectors")
         
         if progress_bar:
             progress_bar.progress(1.0)
@@ -1376,34 +1314,20 @@ def main():
             # Advanced settings
             display_advanced_settings()
 
-            # Debug information
-            if st.session_state.debug_mode and st.session_state.documents_processed:
+            # Debug information - only if debug mode is enabled
+            if st.session_state.debug_mode:
                 with st.expander("🔍 Debug Information"):
-                    st.write(f"**Documents Status:**")
+                    st.write(f"**System Status:**")
                     st.write(f"- Local files: {len(st.session_state.local_files)}")
-                    st.write(f"- Uploaded files: {len(st.session_state.uploaded_files)}")
                     st.write(f"- Document chunks: {st.session_state.document_chunks}")
                     st.write(f"- Vector store: {'✅ Ready' if st.session_state.vectorstore else '❌ Not ready'}")
-                    st.write(f"- Initialization complete: {'✅ Yes' if st.session_state.initialization_complete else '❌ No'}")
                     st.write(f"- Search history: {len(st.session_state.search_history)} queries")
                     
-                    cache_files = list(CACHE_DIR.glob("vectors_*"))
-                    st.write(f"- Cache files: {len(cache_files)}")
-                    
                     if st.session_state.vectorstore:
-                        st.write(f"**Vector Database Info:**")
                         try:
-                            # Get FAISS info
-                            vectorstore_type = type(st.session_state.vectorstore).__name__
-                            st.write(f"- Vector store type: {vectorstore_type}")
-                            st.write(f"- Database: FAISS (Facebook AI Similarity Search)")
-                            
-                            # FAISS index info
                             if hasattr(st.session_state.vectorstore, 'index'):
-                                st.write(f"- FAISS index size: {st.session_state.vectorstore.index.ntotal}")
+                                st.write(f"- FAISS vectors: {st.session_state.vectorstore.index.ntotal}")
                                 st.write(f"- Vector dimension: {st.session_state.vectorstore.index.d}")
-                            else:
-                                st.write(f"- FAISS status: Available")
                         except Exception as e:
                             st.write(f"- Vector store info: {str(e)}")
                     
