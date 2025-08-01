@@ -461,13 +461,19 @@ def create_faiss_vectorstore(texts, embeddings):
         return None
 
 def load_single_local_file(filepath: str) -> List[Document]:
-    """Load a single local file"""
+    """Load a single local file with detailed debugging"""
     try:
         file_extension = Path(filepath).suffix.lower()
         
         # Debug info
         if st.session_state.get('debug_mode', False):
-            st.write(f"Loading file: {filepath} (extension: {file_extension})")
+            st.write(f"📂 Processing: {filepath}")
+            st.write(f"   Extension: {file_extension}")
+            try:
+                file_size = os.path.getsize(filepath)
+                st.write(f"   Size: {file_size} bytes")
+            except:
+                pass
         
         # Use appropriate loader based on file type
         if file_extension == '.pdf':
@@ -483,23 +489,39 @@ def load_single_local_file(filepath: str) -> List[Document]:
                 from langchain_community.document_loaders import UnstructuredWordDocumentLoader
                 loader = UnstructuredWordDocumentLoader(filepath)
             except:
+                if st.session_state.get('debug_mode', False):
+                    st.error(f"   ❌ UnstructuredWordDocumentLoader not available")
                 return []
+        elif file_extension == '.md':
+            # Add markdown support
+            loader = TextLoader(filepath, encoding='utf-8')
         else:
             if st.session_state.get('debug_mode', False):
-                st.write(f"Unsupported file type: {file_extension}")
+                st.warning(f"   ⚠️ Unsupported file type: {file_extension}")
             return []
         
+        # Load documents
         docs = loader.load()
         if st.session_state.get('debug_mode', False):
-            st.write(f"Loaded {len(docs)} raw documents from {filepath}")
+            st.write(f"   📑 Raw documents loaded: {len(docs)}")
+        
+        if not docs:
+            if st.session_state.get('debug_mode', False):
+                st.error(f"   ❌ No documents loaded from {filepath}")
+            return []
         
         cleaned_docs = []
         
         for i, doc in enumerate(docs):
-            if hasattr(doc, 'page_content') and doc.page_content.strip():
-                content = doc.page_content.replace('\n\n', '\n').strip()
-                if len(content) > 20:  # Lower threshold to include more content
+            if hasattr(doc, 'page_content') and doc.page_content:
+                content = doc.page_content.strip()
+                
+                # Very liberal content filtering - accept almost anything
+                if len(content) > 5:  # Very low threshold
+                    # Clean up content slightly
+                    content = content.replace('\n\n\n', '\n\n').replace('\r\n', '\n')
                     doc.page_content = content
+                    
                     # Enhanced metadata
                     doc.metadata.update({
                         'source_file': os.path.basename(filepath),
@@ -510,17 +532,22 @@ def load_single_local_file(filepath: str) -> List[Document]:
                         'content_length': len(content)
                     })
                     cleaned_docs.append(doc)
+                    
+                    if st.session_state.get('debug_mode', False):
+                        st.write(f"   ✅ Document {i+1}: {len(content)} chars")
+                        st.write(f"      Preview: {content[:100]}...")
+                else:
+                    if st.session_state.get('debug_mode', False):
+                        st.warning(f"   ⚠️ Document {i+1} too short: {len(content)} chars")
         
         if st.session_state.get('debug_mode', False):
-            st.write(f"Cleaned to {len(cleaned_docs)} documents from {filepath}")
-            if cleaned_docs:
-                st.write(f"Sample content length: {len(cleaned_docs[0].page_content)}")
+            st.write(f"   📋 Final documents: {len(cleaned_docs)}")
         
         return cleaned_docs
         
     except Exception as e:
         if st.session_state.get('debug_mode', False):
-            st.error(f"Error loading {filepath}: {e}")
+            st.error(f"   ❌ Error loading {filepath}: {e}")
         return []
 
 def load_single_uploaded_file(uploaded_file) -> List[Document]:
@@ -1114,14 +1141,6 @@ def main():
                 color: #1976d2;
                 vertical-align: middle;
             }
-            .chat-container {
-                background: #fafafa;
-                border-radius: 12px;
-                padding: 1rem;
-                margin-top: 0.5rem;
-                margin-bottom: 0.5rem;
-                min-height: 40vh;
-            }
             .chat-container-active {
                 background: #fafafa;
                 border-radius: 12px;
@@ -1136,6 +1155,13 @@ def main():
                 padding: 1rem;
                 margin: 0.5rem 0;
                 border: 1px solid #dee2e6;
+            }
+            .loading-status {
+                padding: 0.5rem;
+                margin: 0.2rem 0;
+                border-radius: 6px;
+                background: #fff3cd;
+                border: 1px solid #ffeaa7;
             }
             @media (max-width: 768px) {
                 .chat-container {
@@ -1454,6 +1480,16 @@ def main():
             # NO LARGE CONTAINER - Just show compact status info
             st.markdown('<div class="no-documents-container">', unsafe_allow_html=True)
             st.markdown("📄 **Status:** Loading documents or waiting for upload...")
+            
+            # Force reload button for debugging
+            if st.button("🔄 Force Reload Documents", key="force_reload"):
+                st.session_state.auto_load_attempted = False
+                st.session_state.documents_processed = False
+                st.session_state.vectorstore = None
+                st.session_state.document_chunks = 0
+                st.session_state.initialization_complete = False
+                st.rerun()
+            
             st.markdown('</div>', unsafe_allow_html=True)
             
             # Show debug info about file scanning - more compact
