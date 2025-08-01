@@ -1147,7 +1147,7 @@ def main():
                 padding: 1rem;
                 margin-top: 0.5rem;
                 margin-bottom: 0.5rem;
-                min-height: 40vh;
+                min-height: 20vh;
             }
             .status-only {
                 padding: 0.5rem;
@@ -1370,10 +1370,12 @@ def main():
                 cache_files = list(CACHE_DIR.glob("vectors_*"))
                 st.write(f"💾 Cache files: {len(cache_files)}")
 
-            # Clear buttons
-            if st.button(t["clear_chat"], use_container_width=True):
-                st.session_state.messages = []
-                st.success("✅ Chat cleared!")
+            # Clear chat button in sidebar when ready
+            if st.session_state.documents_processed and st.session_state.document_chunks > 0:
+                if st.button(t["clear_chat"], use_container_width=True):
+                    st.session_state.messages = []
+                    st.success("✅ Chat cleared!")
+                    st.rerun()
             
             if st.button("🗑️ Clear FAISS Cache", use_container_width=True):
                 try:
