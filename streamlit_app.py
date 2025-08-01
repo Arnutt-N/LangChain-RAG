@@ -1270,16 +1270,21 @@ def main():
 
             # Reload local files button
             if st.button(t["reload_local"], use_container_width=True):
-                # Clear session state
-                st.session_state.local_files = []
-                st.session_state.auto_load_attempted = False
-                st.session_state.documents_processed = False
-                st.session_state.vectorstore = None
-                st.session_state.show_loading_messages = True
-                st.session_state.initialization_complete = False
-                # Reset app state to allow messages to show again
-                save_app_state({"initialized": False, "last_load": 0})
-                st.rerun()
+                try:
+                    # Clear session state
+                    st.session_state.local_files = []
+                    st.session_state.auto_load_attempted = False
+                    st.session_state.documents_processed = False
+                    st.session_state.vectorstore = None
+                    st.session_state.show_loading_messages = True
+                    st.session_state.initialization_complete = False
+                    # Reset app state to allow messages to show again
+                    save_app_state({"initialized": False, "last_load": 0})
+                    st.success("🔄 Reloading...")
+                    time.sleep(0.5)
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Reload error: {e}")
 
             # File uploader
             st.markdown(f'<div class="emoji-text"><span class="emoji-inline">📤</span><span class="bold-text">{t["upload_button"]}</span></div>', unsafe_allow_html=True)
@@ -1384,7 +1389,7 @@ def main():
                     # Reset app state
                     save_app_state({"initialized": False, "last_load": 0})
                     st.success("✅ FAISS cache cleared!")
-                    time.sleep(1)
+                    time.sleep(0.5)
                     st.rerun()
                 except Exception as e:
                     st.error(f"Error clearing FAISS cache: {e}")
@@ -1526,8 +1531,7 @@ Use this content to verify the system works correctly.
                             with open("test_document.txt", "w", encoding="utf-8") as f:
                                 f.write(test_content)
                             st.success("✅ Created test_document.txt")
-                            time.sleep(1)
-                            st.rerun()
+                            # Don't immediately rerun, let user manually reload
                         except Exception as e:
                             st.error(f"Error: {e}")
             
@@ -1567,7 +1571,20 @@ Use this content to verify the system works correctly.
     except Exception as e:
         st.error(f"Application error: {str(e)}")
         if st.session_state.debug_mode:
-            st.code(str(e))
+            st.exception(e)
+        
+        # Add recovery options
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🔄 Reset Application", key="reset_app"):
+                # Clear all session state
+                for key in list(st.session_state.keys()):
+                    del st.session_state[key]
+                st.rerun()
+        
+        with col2:
+            if st.button("📝 Report Issue", key="report_issue"):
+                st.info("Please check the console for detailed error information.")
 
 if __name__ == "__main__":
     main()
