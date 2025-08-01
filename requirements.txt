@@ -1,29 +1,25 @@
-# =============================================================================
-# ADVANCED RAG CHATBOT REQUIREMENTS - FAISS Version
-# =============================================================================
-
-# Core Streamlit and Environment
+# ADVANCED RAG CHATBOT - FAISS VERSION
 streamlit==1.37.0
 python-dotenv==1.0.1
 
-# AI Models and APIs
+# AI Models
 google-generativeai==0.7.2
 mistralai==1.0.1
 langchain-google-genai==1.0.8
-langchain_mistralai
+langchain-mistralai==0.1.1  # Fixed package name
+langchain-huggingface==0.0.3
 
 # LangChain Core
 langchain==0.2.11
 langchain-community==0.2.10
 langchain-core==0.2.35
 langchain-text-splitters==0.2.2
-langchain-huggingface==0.0.3
 
-# Vector Database - FAISS (Lightweight, No SQLite conflicts)
+# Vector Database
 faiss-cpu==1.8.0
-# Alternative for GPU: faiss-gpu==1.8.0 (uncomment if needed)
+# faiss-gpu==1.8.0  # Uncomment for GPU
 
-# Embeddings and ML
+# Embeddings
 sentence-transformers==3.0.1
 transformers==4.44.2
 torch==2.4.0
@@ -42,63 +38,15 @@ requests==2.32.3
 pydantic==2.8.2
 tenacity==8.5.0
 
-# File Processing and Utilities
+# Utilities
 chardet==5.2.0
 filetype==1.2.0
 pathlib2==2.3.7
-
-# Enhanced PDF Processing (optional)
 PyMuPDF==1.24.10
 pdfplumber==0.11.4
-
-# Additional utilities for better compatibility
 typing-extensions==4.12.2
 packaging==24.1
 
-# =============================================================================
-# DEVELOPMENT TOOLS (for local development only - remove for production)
-# =============================================================================
+# Remove for production:
 # jupyter==1.1.1
-# ipython==8.29.0
 # black==24.8.0
-# pytest==8.3.2
-
-# =============================================================================
-# INSTALLATION NOTES:
-# =============================================================================
-# 
-# 1. FAISS Installation Options:
-#    - CPU: pip install faiss-cpu (recommended for most use cases)
-#    - GPU: pip install faiss-gpu (for CUDA-enabled systems)
-#
-# 2. Quick Install Command:
-#    pip install -r requirements.txt
-#
-# 3. For Streamlit Cloud:
-#    - Make sure this file is named exactly "requirements.txt"
-#    - Place in root directory of your repository
-#    - Remove development tools section for production
-#
-# 4. Key Changes from ChromaDB version:
-#    - Replaced chromadb with faiss-cpu (eliminates SQLite conflicts)
-#    - Reduced torch version for better compatibility
-#    - Added typing-extensions for Python compatibility
-#    - Simplified unstructured package installation
-#
-# 5. Supported File Types:
-#    - PDF files (.pdf)
-#    - Text files (.txt)
-#    - CSV files (.csv)
-#    - Excel files (.xlsx, .xls)
-#    - Word documents (.docx)
-#
-# 6. Environment Variables needed:
-#    - GOOGLE_API_KEY or GEMINI_API_KEY (required)
-#    - MISTRAL_API_KEY (optional)
-#
-# 7. Memory Usage:
-#    - FAISS uses less memory than ChromaDB
-#    - Better performance for similarity search
-#    - No persistent database files (uses local cache instead)
-#
-# =============================================================================
