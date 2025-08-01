@@ -10,7 +10,8 @@ python-dotenv==1.0.1
 google-generativeai==0.7.2
 mistralai==1.0.1
 langchain-google-genai==1.0.8
-langchain-mistralai==0.2.0  # Updated to fix conflict with langchain-core 0.2.x
+
+# LangChain Core
 langchain==0.2.11
 langchain-community==0.2.10
 langchain-core==0.2.35
@@ -52,6 +53,14 @@ pdfplumber==0.11.4
 # Additional utilities for better compatibility
 typing-extensions==4.12.2
 packaging==24.1
+
+# =============================================================================
+# DEVELOPMENT TOOLS (for local development only - remove for production)
+# =============================================================================
+# jupyter==1.1.1
+# ipython==8.29.0
+# black==24.8.0
+# pytest==8.3.2
 
 # =============================================================================
 # INSTALLATION NOTES:
