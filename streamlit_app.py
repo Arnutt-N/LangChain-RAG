@@ -465,6 +465,10 @@ def load_single_local_file(filepath: str) -> List[Document]:
     try:
         file_extension = Path(filepath).suffix.lower()
         
+        # Debug info
+        if st.session_state.get('debug_mode', False):
+            st.write(f"Loading file: {filepath} (extension: {file_extension})")
+        
         # Use appropriate loader based on file type
         if file_extension == '.pdf':
             loader = PyPDFLoader(filepath)
@@ -481,15 +485,20 @@ def load_single_local_file(filepath: str) -> List[Document]:
             except:
                 return []
         else:
+            if st.session_state.get('debug_mode', False):
+                st.write(f"Unsupported file type: {file_extension}")
             return []
         
         docs = loader.load()
+        if st.session_state.get('debug_mode', False):
+            st.write(f"Loaded {len(docs)} raw documents from {filepath}")
+        
         cleaned_docs = []
         
         for i, doc in enumerate(docs):
             if hasattr(doc, 'page_content') and doc.page_content.strip():
                 content = doc.page_content.replace('\n\n', '\n').strip()
-                if len(content) > 50:  # Only include meaningful content
+                if len(content) > 20:  # Lower threshold to include more content
                     doc.page_content = content
                     # Enhanced metadata
                     doc.metadata.update({
@@ -502,9 +511,16 @@ def load_single_local_file(filepath: str) -> List[Document]:
                     })
                     cleaned_docs.append(doc)
         
+        if st.session_state.get('debug_mode', False):
+            st.write(f"Cleaned to {len(cleaned_docs)} documents from {filepath}")
+            if cleaned_docs:
+                st.write(f"Sample content length: {len(cleaned_docs[0].page_content)}")
+        
         return cleaned_docs
         
     except Exception as e:
+        if st.session_state.get('debug_mode', False):
+            st.error(f"Error loading {filepath}: {e}")
         return []
 
 def load_single_uploaded_file(uploaded_file) -> List[Document]:
@@ -699,11 +715,7 @@ def auto_load_local_files():
     """Automatically load local files on startup with better UX"""
     app_state = get_app_state()
     
-    # Check if this is a fresh app start (not just a user session)
-    if app_state.get("initialized", False) and (time.time() - app_state.get("last_load", 0)) < 300:  # 5 minutes
-        # App was recently initialized, skip auto-load messages
-        st.session_state.show_loading_messages = False
-    
+    # Always try to load if not attempted yet (don't skip based on app state)
     if st.session_state.auto_load_attempted:
         return
     
@@ -719,13 +731,12 @@ def auto_load_local_files():
         st.info("📁 No local files found in repository. Upload documents using the sidebar.")
         return  # Exit early if no files
     
-    # Show initial file discovery message only once per app session
-    if st.session_state.show_loading_messages:
-        st.info(t["found_local_files"](len(local_files)))
+    # Always show file discovery message and process files
+    st.info(t["found_local_files"](len(local_files)))
     
-    # Auto-process if we have local files - no spinner to avoid hanging
+    # Force process files even if app was recently initialized
     try:
-        success = process_all_documents(local_files, [], show_progress=st.session_state.show_loading_messages)
+        success = process_all_documents(local_files, [], show_progress=True)
         
         if success:
             # Update app state to indicate successful initialization
@@ -733,14 +744,17 @@ def auto_load_local_files():
             app_state["last_load"] = time.time()
             save_app_state(app_state)
             
-            # Disable loading messages for subsequent users
-            st.session_state.show_loading_messages = False
             st.session_state.initialization_complete = True
+            st.success(f"✅ Successfully processed {len(local_files)} files with {st.session_state.document_chunks} chunks!")
         else:
-            st.error("❌ Failed to process local files. Try reloading manually.")
+            st.error("❌ Failed to process local files. Check file formats or try reloading manually.")
+            # Debug info
+            if st.session_state.debug_mode:
+                st.write(f"Debug: Files found but processing failed for: {local_files}")
     except Exception as e:
         st.error(f"Error during auto-load: {e}")
-        st.session_state.show_loading_messages = False
+        if st.session_state.debug_mode:
+            st.exception(e)
 
 # Custom Mistral LangChain wrapper with improved compatibility
 class MistralLLM:
@@ -1108,6 +1122,21 @@ def main():
                 margin-bottom: 0.5rem;
                 min-height: 40vh;
             }
+            .chat-container-active {
+                background: #fafafa;
+                border-radius: 12px;
+                padding: 1rem;
+                margin-top: 0.5rem;
+                margin-bottom: 0.5rem;
+                min-height: 40vh;
+            }
+            .no-documents-container {
+                background: #f8f9fa;
+                border-radius: 8px;
+                padding: 1rem;
+                margin: 0.5rem 0;
+                border: 1px solid #dee2e6;
+            }
             @media (max-width: 768px) {
                 .chat-container {
                     margin-bottom: 0.5rem;
@@ -1162,7 +1191,11 @@ def main():
                 
         with col2:
             if st.session_state.documents_processed and st.session_state.vectorstore:
-                st.success(f"🗃️ FAISS ({st.session_state.document_chunks})")
+                chunk_count = st.session_state.document_chunks
+                if chunk_count > 0:
+                    st.success(f"🗃️ FAISS ({chunk_count})")
+                else:
+                    st.error(f"🗃️ FAISS (0 chunks!)")
             else:
                 st.warning("🗃️ Not ready")
                 
@@ -1289,6 +1322,21 @@ def main():
                                 st.write(f"- FAISS status: Available")
                         except Exception as e:
                             st.write(f"- Vector store info: {str(e)}")
+                    
+                    # Test vector store functionality
+                    if st.button("🧪 Test Vector Store"):
+                        if st.session_state.vectorstore:
+                            try:
+                                test_query = "test query"
+                                retriever = st.session_state.vectorstore.as_retriever(search_kwargs={"k": 3})
+                                results = retriever.get_relevant_documents(test_query)
+                                st.write(f"✅ Vector store working! Found {len(results)} documents")
+                                for i, doc in enumerate(results[:2]):
+                                    st.write(f"Doc {i+1}: {doc.page_content[:100]}...")
+                            except Exception as e:
+                                st.error(f"❌ Vector store test failed: {e}")
+                        else:
+                            st.error("❌ No vector store available")
 
             # Statistics
             if st.session_state.debug_mode and st.session_state.documents_processed:
@@ -1343,8 +1391,8 @@ def main():
 
         # Main content
         if st.session_state.documents_processed:
-            # Chat interface in container
-            st.markdown('<div class="chat-container">', unsafe_allow_html=True)
+            # Chat interface in container - ONLY when documents are processed
+            st.markdown('<div class="chat-container-active">', unsafe_allow_html=True)
             
             # Display chat messages
             for message in st.session_state.messages:
@@ -1403,8 +1451,10 @@ def main():
             st.markdown('</div>', unsafe_allow_html=True)
 
         else:
-            # Compact info without large empty space
+            # NO LARGE CONTAINER - Just show compact status info
+            st.markdown('<div class="no-documents-container">', unsafe_allow_html=True)
             st.markdown("📄 **Status:** Loading documents or waiting for upload...")
+            st.markdown('</div>', unsafe_allow_html=True)
             
             # Show debug info about file scanning - more compact
             if st.session_state.debug_mode:
@@ -1485,8 +1535,8 @@ Use this content to verify the system works correctly.
                     **📊 ไฟล์ที่รองรับ:** PDF, TXT, CSV, XLSX, DOCX
                     """)
 
-        # Always show chat input area at the bottom
-        st.markdown('<div style="margin-top: 2rem;"></div>', unsafe_allow_html=True)
+        # Always show chat input area at the bottom - no extra margin
+        pass
         
     except Exception as e:
         st.error(f"Application error: {str(e)}")
