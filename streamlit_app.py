@@ -461,88 +461,148 @@ def create_faiss_vectorstore(texts, embeddings):
         return None
 
 def load_single_local_file(filepath: str) -> List[Document]:
-    """Load a single local file - work silently unless debug mode"""
+    """Load a single local file with improved error handling and content validation"""
     try:
         file_extension = Path(filepath).suffix.lower()
         filename = os.path.basename(filepath)
         
-        # Only show debug info if debug mode is on
         debug_mode = st.session_state.get('debug_mode', False)
         
         if debug_mode:
             st.write(f"🔄 Processing: **{filename}**")
         
-        # Use appropriate loader based on file type
-        if file_extension == '.pdf':
-            loader = PyPDFLoader(filepath)
-        elif file_extension == '.csv':
-            loader = CSVLoader(filepath)
-        elif file_extension in ['.txt', '.md']:
-            loader = TextLoader(filepath, encoding='utf-8')
-        elif file_extension in ['.xlsx', '.xls']:
-            loader = UnstructuredExcelLoader(filepath)
-        elif file_extension == '.docx':
-            try:
-                from langchain_community.document_loaders import UnstructuredWordDocumentLoader
-                loader = UnstructuredWordDocumentLoader(filepath)
-            except:
-                if debug_mode:
-                    st.error(f"   ❌ UnstructuredWordDocumentLoader not available")
-                return []
-        else:
+        # Check if file exists and is readable
+        if not os.path.exists(filepath):
             if debug_mode:
-                st.warning(f"   ⚠️ Unsupported file type: {file_extension}")
+                st.error(f"   ❌ File not found: {filepath}")
             return []
         
-        # Load documents
-        docs = loader.load()
+        if os.path.getsize(filepath) == 0:
+            if debug_mode:
+                st.warning(f"   ⚠️ Empty file: {filename}")
+            return []
+        
+        # Use appropriate loader based on file type with better error handling
+        try:
+            if file_extension == '.pdf':
+                loader = PyPDFLoader(filepath)
+            elif file_extension == '.csv':
+                # For CSV files, use encoding detection
+                import chardet
+                with open(filepath, 'rb') as f:
+                    raw_data = f.read()
+                    encoding = chardet.detect(raw_data)['encoding'] or 'utf-8'
+                
+                # Try different CSV configurations
+                try:
+                    loader = CSVLoader(filepath, encoding=encoding)
+                except Exception:
+                    # Fallback to basic text loader for problematic CSVs
+                    loader = TextLoader(filepath, encoding=encoding)
+            elif file_extension in ['.txt', '.md']:
+                # Try to detect encoding for text files
+                import chardet
+                with open(filepath, 'rb') as f:
+                    raw_data = f.read()
+                    encoding = chardet.detect(raw_data)['encoding'] or 'utf-8'
+                loader = TextLoader(filepath, encoding=encoding)
+            elif file_extension in ['.xlsx', '.xls']:
+                loader = UnstructuredExcelLoader(filepath)
+            elif file_extension == '.docx':
+                try:
+                    from langchain_community.document_loaders import UnstructuredWordDocumentLoader
+                    loader = UnstructuredWordDocumentLoader(filepath)
+                except ImportError:
+                    if debug_mode:
+                        st.error(f"   ❌ UnstructuredWordDocumentLoader not available")
+                    return []
+            else:
+                if debug_mode:
+                    st.warning(f"   ⚠️ Unsupported file type: {file_extension}")
+                return []
+        
+        except Exception as e:
+            if debug_mode:
+                st.error(f"   ❌ Error initializing loader for {filename}: {e}")
+            return []
+        
+        # Load documents with error handling
+        try:
+            docs = loader.load()
+        except Exception as e:
+            if debug_mode:
+                st.error(f"   ❌ Error loading {filename}: {e}")
+            # Try fallback to text loader for any file type
+            try:
+                import chardet
+                with open(filepath, 'rb') as f:
+                    raw_data = f.read()
+                    encoding = chardet.detect(raw_data)['encoding'] or 'utf-8'
+                loader = TextLoader(filepath, encoding=encoding)
+                docs = loader.load()
+                if debug_mode:
+                    st.info(f"   ✅ Fallback text loader worked for {filename}")
+            except Exception as fallback_e:
+                if debug_mode:
+                    st.error(f"   ❌ Fallback also failed for {filename}: {fallback_e}")
+                return []
         
         if not docs:
             if debug_mode:
                 st.error(f"   ❌ No documents loaded from {filename}")
             return []
         
-        # Process documents with liberal filtering
+        # Process documents with more liberal content filtering
         cleaned_docs = []
         
         for i, doc in enumerate(docs):
             if hasattr(doc, 'page_content') and doc.page_content:
                 content = str(doc.page_content).strip()
                 
-                # Accept any non-empty content
-                if len(content) > 0:
+                # More liberal content acceptance - accept any meaningful content
+                if len(content) > 5:  # Very minimal threshold
                     # Clean up content
                     content = content.replace('\r\n', '\n').replace('\r', '\n')
-                    doc.page_content = content
+                    # Remove excessive whitespace but preserve structure
+                    content = '\n'.join(line.strip() for line in content.split('\n') if line.strip())
                     
-                    # Enhanced metadata
-                    doc.metadata.update({
-                        'source_file': filename,
-                        'file_path': filepath,
-                        'file_hash': get_file_hash(filepath),
-                        'file_type': 'local',
-                        'chunk_id': i,
-                        'content_length': len(content)
-                    })
-                    cleaned_docs.append(doc)
-                    
-                    if debug_mode:
-                        st.write(f"   ✅ Document {i+1}: {len(content)} chars")
-                        preview = content[:100] + ("..." if len(content) > 100 else "")
-                        st.write(f"      Preview: {repr(preview)}")
+                    if content:  # Final check after cleaning
+                        doc.page_content = content
+                        
+                        # Enhanced metadata
+                        doc.metadata.update({
+                            'source_file': filename,
+                            'file_path': filepath,
+                            'file_hash': get_file_hash(filepath),
+                            'file_type': 'local',
+                            'chunk_id': i,
+                            'content_length': len(content),
+                            'file_extension': file_extension
+                        })
+                        cleaned_docs.append(doc)
+                        
+                        if debug_mode:
+                            st.write(f"   ✅ Document {i+1}: {len(content)} chars")
+                            preview = content[:150] + ("..." if len(content) > 150 else "")
+                            st.write(f"      Preview: {repr(preview)}")
+                elif debug_mode:
+                    st.warning(f"   ⚠️ Skipping short content ({len(content)} chars): {repr(content[:50])}")
         
         if debug_mode:
             st.write(f"   📋 Final: {len(cleaned_docs)} documents from {filename}")
+        
+        if not cleaned_docs and debug_mode:
+            st.error(f"   ❌ No valid content extracted from {filename}")
         
         return cleaned_docs
         
     except Exception as e:
         if st.session_state.get('debug_mode', False):
-            st.error(f"   ❌ Error loading {filepath}: {e}")
+            st.error(f"   ❌ Unexpected error loading {filepath}: {e}")
         return []
 
 def load_single_uploaded_file(uploaded_file) -> List[Document]:
-    """Load a single uploaded file"""
+    """Load a single uploaded file with improved handling"""
     try:
         file_extension = uploaded_file.name.split('.')[-1].lower()
         
@@ -551,37 +611,75 @@ def load_single_uploaded_file(uploaded_file) -> List[Document]:
             temp_file_path = temp_file.name
         
         try:
-            # Updated document loaders
-            if file_extension == 'pdf':
-                loader = PyPDFLoader(temp_file_path)
-            elif file_extension == 'csv':
-                loader = CSVLoader(temp_file_path)
-            elif file_extension == 'txt':
-                loader = TextLoader(temp_file_path, encoding='utf-8')
-            elif file_extension in ['xlsx', 'xls']:
-                loader = UnstructuredExcelLoader(temp_file_path)
-            else:
+            # Use the same logic as local files
+            debug_mode = st.session_state.get('debug_mode', False)
+            
+            if debug_mode:
+                st.write(f"🔄 Processing uploaded: **{uploaded_file.name}**")
+            
+            # Updated document loaders with better error handling
+            try:
+                if file_extension == 'pdf':
+                    loader = PyPDFLoader(temp_file_path)
+                elif file_extension == 'csv':
+                    # Try to detect encoding
+                    import chardet
+                    with open(temp_file_path, 'rb') as f:
+                        raw_data = f.read()
+                        encoding = chardet.detect(raw_data)['encoding'] or 'utf-8'
+                    loader = CSVLoader(temp_file_path, encoding=encoding)
+                elif file_extension == 'txt':
+                    # Try to detect encoding
+                    import chardet
+                    with open(temp_file_path, 'rb') as f:
+                        raw_data = f.read()
+                        encoding = chardet.detect(raw_data)['encoding'] or 'utf-8'
+                    loader = TextLoader(temp_file_path, encoding=encoding)
+                elif file_extension in ['xlsx', 'xls']:
+                    loader = UnstructuredExcelLoader(temp_file_path)
+                else:
+                    if debug_mode:
+                        st.warning(f"   ⚠️ Unsupported uploaded file type: {file_extension}")
+                    return []
+                
+                docs = loader.load()
+            except Exception as e:
+                if debug_mode:
+                    st.error(f"   ❌ Error loading uploaded file {uploaded_file.name}: {e}")
                 return []
             
-            docs = loader.load()
             cleaned_docs = []
             
             for i, doc in enumerate(docs):
-                if hasattr(doc, 'page_content') and doc.page_content.strip():
-                    content = doc.page_content.replace('\n\n', '\n').strip()
-                    if len(content) > 50:  # Only include meaningful content
-                        doc.page_content = content
-                        # Enhanced metadata
-                        doc.metadata.update({
-                            'source_file': uploaded_file.name,
-                            'file_hash': get_file_hash(uploaded_file.getvalue()),
-                            'file_type': 'uploaded',
-                            'upload_time': time.time(),
-                            'file_size': len(uploaded_file.getvalue()),
-                            'chunk_id': i,
-                            'content_length': len(content)
-                        })
-                        cleaned_docs.append(doc)
+                if hasattr(doc, 'page_content') and doc.page_content:
+                    content = str(doc.page_content).strip()
+                    
+                    # More liberal content acceptance
+                    if len(content) > 5:  # Very minimal threshold
+                        # Clean up content
+                        content = content.replace('\r\n', '\n').replace('\r', '\n')
+                        content = '\n'.join(line.strip() for line in content.split('\n') if line.strip())
+                        
+                        if content:
+                            doc.page_content = content
+                            # Enhanced metadata
+                            doc.metadata.update({
+                                'source_file': uploaded_file.name,
+                                'file_hash': get_file_hash(uploaded_file.getvalue()),
+                                'file_type': 'uploaded',
+                                'upload_time': time.time(),
+                                'file_size': len(uploaded_file.getvalue()),
+                                'chunk_id': i,
+                                'content_length': len(content),
+                                'file_extension': file_extension
+                            })
+                            cleaned_docs.append(doc)
+                            
+                            if debug_mode:
+                                st.write(f"   ✅ Document {i+1}: {len(content)} chars")
+            
+            if debug_mode:
+                st.write(f"   📋 Final: {len(cleaned_docs)} documents from {uploaded_file.name}")
             
             return cleaned_docs
             
@@ -592,14 +690,18 @@ def load_single_uploaded_file(uploaded_file) -> List[Document]:
                 pass
         
     except Exception as e:
+        if st.session_state.get('debug_mode', False):
+            st.error(f"Error processing uploaded file {uploaded_file.name}: {e}")
         return []
 
 def process_all_documents(local_files: List[str], uploaded_files: List, show_progress: bool = True) -> bool:
-    """Process all documents with intelligent caching"""
+    """Process all documents with intelligent caching and improved error handling"""
     t = translations[st.session_state.language]
     
     total_files = len(local_files) + len(uploaded_files)
     if total_files == 0:
+        if st.session_state.get('debug_mode', False):
+            st.warning("❌ No files to process!")
         return False
     
     # Generate cache key
@@ -648,6 +750,9 @@ def process_all_documents(local_files: List[str], uploaded_files: List, show_pro
             docs = load_single_local_file(filepath)
             all_documents.extend(docs)
             processed += 1
+            
+            if st.session_state.get('debug_mode', False):
+                st.write(f"📄 Loaded {len(docs)} documents from {os.path.basename(filepath)}")
         
         # Process uploaded files
         for uploaded_file in uploaded_files:
@@ -659,33 +764,55 @@ def process_all_documents(local_files: List[str], uploaded_files: List, show_pro
             docs = load_single_uploaded_file(uploaded_file)
             all_documents.extend(docs)
             processed += 1
+            
+            if st.session_state.get('debug_mode', False):
+                st.write(f"📄 Loaded {len(docs)} documents from {uploaded_file.name}")
+        
+        if st.session_state.get('debug_mode', False):
+            st.write(f"📊 Total documents loaded: {len(all_documents)}")
+            if all_documents:
+                total_chars = sum(len(doc.page_content) for doc in all_documents)
+                st.write(f"📈 Total characters: {total_chars:,}")
+                avg_chars = total_chars / len(all_documents)
+                st.write(f"📊 Average document length: {avg_chars:.0f} chars")
         
         if not all_documents:
+            if st.session_state.get('debug_mode', False):
+                st.error("❌ No documents loaded! Check file contents and formats.")
             return False
         
-        # Split documents into chunks
+        # Split documents into chunks with more aggressive settings
         if show_progress and status_text:
             status_text.text("🔄 Creating text chunks...")
         if progress_bar:
             progress_bar.progress(0.7)
         
-        # Use liberal text splitter settings
+        # More aggressive text splitter settings to ensure chunks are created
         text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=500,
-            chunk_overlap=50,
-            separators=["\n\n", "\n", ". ", " ", ""],
+            chunk_size=800,  # Increased chunk size
+            chunk_overlap=100,  # Increased overlap
+            separators=["\n\n", "\n", ". ", "! ", "? ", " ", ""],  # More separators
             length_function=len,
             keep_separator=True
         )
         
         texts = text_splitter.split_documents(all_documents)
         
+        if st.session_state.get('debug_mode', False):
+            st.write(f"📊 Text chunks created: {len(texts)}")
+            if texts:
+                chunk_lengths = [len(chunk.page_content) for chunk in texts]
+                st.write(f"📈 Chunk lengths: min={min(chunk_lengths)}, max={max(chunk_lengths)}, avg={sum(chunk_lengths)/len(chunk_lengths):.0f}")
+        
         if not texts:
             if st.session_state.get('debug_mode', False):
                 st.error("❌ No text chunks created from documents!")
-                st.write(f"Total documents processed: {len(all_documents)}")
-                total_chars = sum(len(doc.page_content) for doc in all_documents)
-                st.write(f"Total characters: {total_chars:,}")
+                st.write("📊 Debug info:")
+                st.write(f"- Total documents: {len(all_documents)}")
+                if all_documents:
+                    total_chars = sum(len(doc.page_content) for doc in all_documents)
+                    st.write(f"- Total characters: {total_chars:,}")
+                    st.write(f"- Sample content: {repr(all_documents[0].page_content[:200])}")
             return False
         
         # Create embeddings and vectorstore
@@ -700,17 +827,27 @@ def process_all_documents(local_files: List[str], uploaded_files: List, show_pro
                 st.error("❌ Failed to initialize embeddings model!")
             return False
         
-        # Create FAISS vector store
+        # Create FAISS vector store with better error handling
         try:
+            if st.session_state.get('debug_mode', False):
+                st.write(f"🔧 Creating FAISS vector store with {len(texts)} chunks...")
+            
             vectorstore = create_faiss_vectorstore(texts, embeddings)
             if not vectorstore:
                 if st.session_state.get('debug_mode', False):
                     st.error("❌ Failed to create FAISS vector store!")
                 return False
             
+            if st.session_state.get('debug_mode', False):
+                st.write("✅ FAISS vector store created successfully!")
+                if hasattr(vectorstore, 'index'):
+                    st.write(f"📊 FAISS index: {vectorstore.index.ntotal} vectors, {vectorstore.index.d} dimensions")
+            
         except Exception as e:
             if st.session_state.get('debug_mode', False):
                 st.error(f"❌ FAISS creation failed: {e}")
+                import traceback
+                st.text(traceback.format_exc())
             return False
         
         # Save to cache and update session state
@@ -745,6 +882,12 @@ def process_all_documents(local_files: List[str], uploaded_files: List, show_pro
             progress_bar.empty()
         if status_text:
             status_text.empty()
+        
+        if st.session_state.get('debug_mode', False):
+            st.error(f"❌ Error in process_all_documents: {e}")
+            import traceback
+            st.text(traceback.format_exc())
+        
         return False
 
 # Auto-load local files on startup with improved UX
@@ -1397,8 +1540,8 @@ def main():
         auto_load_local_files()
 
         # Main content
-        if st.session_state.documents_processed:
-            # Chat interface in container - ONLY when documents are processed
+        if st.session_state.documents_processed and st.session_state.document_chunks > 0:
+            # Chat interface in container - ONLY when documents are processed AND chunks exist
             st.markdown('<div class="chat-container-active">', unsafe_allow_html=True)
             
             # Display chat messages
@@ -1458,9 +1601,43 @@ def main():
             st.markdown('</div>', unsafe_allow_html=True)
 
         else:
-            # NO LARGE CONTAINER - Just show compact status info
+            # Show status when documents are not ready OR when no chunks were created
             st.markdown('<div class="no-documents-container">', unsafe_allow_html=True)
-            st.markdown("📄 **Status:** Loading documents or waiting for upload...")
+            
+            if st.session_state.documents_processed and st.session_state.document_chunks == 0:
+                # Documents were processed but no chunks created
+                st.error("❌ **Documents processed but no text chunks created!**")
+                st.warning("This usually means the documents are empty, corrupted, or in an unsupported format.")
+                
+                if st.session_state.debug_mode:
+                    st.info("💡 **Debug suggestions:**")
+                    st.write("- Check if your files contain readable text")
+                    st.write("- Try uploading different file formats")
+                    st.write("- Enable debug mode to see detailed processing info")
+                
+                # Show file analysis in debug mode
+                if st.session_state.debug_mode and st.session_state.local_files:
+                    with st.expander("🔍 File Analysis", expanded=True):
+                        for filepath in st.session_state.local_files[:3]:  # Analyze first 3 files
+                            st.write(f"**📄 {os.path.basename(filepath)}**")
+                            try:
+                                file_size = os.path.getsize(filepath)
+                                st.write(f"- Size: {file_size:,} bytes")
+                                
+                                # Try to read a sample
+                                if file_size > 0:
+                                    with open(filepath, 'rb') as f:
+                                        sample = f.read(200)
+                                    st.write(f"- Sample (first 200 bytes): {repr(sample)}")
+                                else:
+                                    st.write("- ⚠️ File is empty!")
+                            except Exception as e:
+                                st.write(f"- ❌ Error reading: {e}")
+                            st.write("---")
+                
+            else:
+                # Still loading or no documents found
+                st.markdown("📄 **Status:** Loading documents or waiting for upload...")
             
             # Force reload button for debugging
             if st.button("🔄 Force Reload Documents", key="force_reload"):
@@ -1479,6 +1656,7 @@ def main():
                     st.write(f"- Auto load: {st.session_state.auto_load_attempted}")
                     st.write(f"- Local files: {len(st.session_state.local_files)}")
                     st.write(f"- Processed: {st.session_state.documents_processed}")
+                    st.write(f"- Chunks: {st.session_state.document_chunks}")
                     st.write(f"- Directory: {os.getcwd()}")
                     
                     # Manual file scan for debugging
@@ -1507,16 +1685,32 @@ def main():
 This document tests the RAG chatbot functionality.
 
 ## Key Features
-- Document loading
-- Vector embeddings  
-- Question answering
-- Source retrieval
+- Document loading and processing
+- Vector embeddings creation
+- Question answering capabilities
+- Source document retrieval
+
+## Test Content
+This is a test document to verify that the RAG system can properly:
+1. Load and process text documents
+2. Create meaningful text chunks
+3. Generate vector embeddings
+4. Retrieve relevant information based on queries
+
+## Sample Questions
+You can ask questions like:
+- What are the key features mentioned in this document?
+- What is this document about?
+- How can I test the RAG system?
 
 Use this content to verify the system works correctly.
+
+## Technical Details
+The document should be processed into multiple chunks, embedded using the sentence-transformers model, and stored in the FAISS vector database for efficient similarity search.
 """
                             with open("test_document.txt", "w", encoding="utf-8") as f:
                                 f.write(test_content)
-                            st.success("✅ Created test_document.txt")
+                            st.success("✅ Created test_document.txt with substantial content")
                             # Don't immediately rerun, let user manually reload
                         except Exception as e:
                             st.error(f"Error: {e}")
@@ -1525,8 +1719,10 @@ Use this content to verify the system works correctly.
             if st.session_state.auto_load_attempted and not st.session_state.documents_processed:
                 if st.session_state.local_files:
                     st.warning(f"⚠️ Found {len(st.session_state.local_files)} files but processing failed.")
+                    if st.session_state.debug_mode:
+                        st.info("💡 Enable debug mode and try Force Reload to see detailed error information.")
                 else:
-                    st.info("💡 No local files found. Upload documents via sidebar.")
+                    st.info("💡 No local files found. Upload documents via sidebar or create test file.")
             
             # Compact help section
             with st.expander("ℹ️ Quick Help", expanded=False):
@@ -1539,6 +1735,11 @@ Use this content to verify the system works correctly.
                     - Smart caching for quick reloads
                     
                     **📊 Supported Files:** PDF, TXT, CSV, XLSX, DOCX
+                    
+                    **🔧 Troubleshooting:**
+                    - Enable Debug Mode for detailed processing info
+                    - Create test file if no documents are found
+                    - Check that files contain readable text content
                     """)
                 else:
                     st.markdown("""
@@ -1549,10 +1750,13 @@ Use this content to verify the system works correctly.
                     - ระบบ cache อัจฉริยะ
                     
                     **📊 ไฟล์ที่รองรับ:** PDF, TXT, CSV, XLSX, DOCX
+                    
+                    **🔧 การแก้ไขปัญหา:**
+                    - เปิด Debug Mode เพื่อดูข้อมูลรายละเอียด
+                    - สร้างไฟล์ทดสอบหากไม่พบเอกสาร
+                    - ตรวจสอบว่าไฟล์มีเนื้อหาที่อ่านได้
                     """)
 
-        # Always show chat input area at the bottom - no extra margin
-        pass
         
     except Exception as e:
         st.error(f"Application error: {str(e)}")
