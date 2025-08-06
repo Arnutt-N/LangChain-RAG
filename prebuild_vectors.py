@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Pre-build Vector Cache for GitHub Deployment
-FIXED VERSION - Excludes virtual environment and unnecessary files
+Pre-build Vector Cache with Qwen Embeddings
+Using Hugging Face Inference API
 """
 
 import os
@@ -9,6 +9,7 @@ import json
 import hashlib
 from datetime import datetime
 from pathlib import Path
+from dotenv import load_dotenv
 
 # Import required libraries
 from langchain_community.document_loaders import (
@@ -19,65 +20,43 @@ from langchain_community.document_loaders import (
     UnstructuredWordDocumentLoader
 )
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-
-# Try both import methods for compatibility
-try:
-    from langchain_huggingface import HuggingFaceEmbeddings
-except ImportError:
-    from langchain_community.embeddings import HuggingFaceEmbeddings
-
 from langchain_community.vectorstores import FAISS
-from dotenv import load_dotenv
+
+# Import Qwen embeddings
+from qwen_embeddings import QwenEmbeddings
 
 # Load environment variables
 load_dotenv()
 
+def check_hf_token():
+    """Check if HF_TOKEN is available"""
+    hf_token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")
+    if not hf_token:
+        print("❌ HF_TOKEN not found!")
+        print("\n💡 Please set your Hugging Face token:")
+        print("   export HF_TOKEN='your-token-here'")
+        print("   or add to .env file:")
+        print("   HF_TOKEN=your-token-here")
+        print("\nGet your token from: https://huggingface.co/settings/tokens")
+        return None
+    return hf_token
+
 def scan_documents(directories=None):
-    """Scan for documents in specified directories - EXCLUDING env and other unnecessary folders"""
+    """Scan for documents in specified directories"""
     if directories is None:
-        # Only scan specific directories, NOT the entire project
         directories = ["documents", "data"]
-        
-        # Add current directory ONLY if documents folder doesn't exist
         if not Path("documents").exists() and not Path("data").exists():
             directories.append(".")
     
     supported_extensions = ['.pdf', '.txt', '.csv', '.xlsx', '.xls', '.docx', '.md']
-    
-    # CRITICAL: Exclude these files and directories
     excluded_files = [
-        'requirements.txt', 
-        'README.md', 
-        '.env',
-        'LICENSE',
-        'Dockerfile',
-        '.gitignore',
-        'setup.py',
-        'setup.cfg',
-        'pyproject.toml'
+        'requirements.txt', 'README.md', '.env',
+        'LICENSE', 'Dockerfile', '.gitignore'
     ]
-    
     excluded_dirs = [
-        'env',           # Virtual environment
-        'venv',          # Virtual environment
-        '.venv',         # Virtual environment  
-        '__pycache__',   # Python cache
-        '.git',          # Git directory
-        '.github',       # GitHub configs
-        '.streamlit',    # Streamlit config
-        'vector_cache',  # Cache directory
-        'prebuilt_vectors', # Output directory
-        'node_modules',  # Node.js
-        '.pytest_cache', # Pytest cache
-        '.mypy_cache',   # Mypy cache
-        'dist',          # Distribution
-        'build',         # Build directory
-        '.idea',         # IDE configs
-        '.vscode',       # IDE configs
-        'temp',          # Temporary files
-        'tmp',           # Temporary files
-        'test',          # Test files
-        'tests',         # Test files
+        'env', 'venv', '.venv', '__pycache__',
+        '.git', '.github', '.streamlit',
+        'vector_cache', 'prebuilt_vectors'
     ]
     
     found_files = []
@@ -87,23 +66,17 @@ def scan_documents(directories=None):
         if not dir_path.exists():
             continue
         
-        # If scanning current directory, be extra careful
         if directory == ".":
-            # Only look for documents in root, not subdirectories
             for ext in supported_extensions:
                 for file_path in dir_path.glob(f"*{ext}"):
-                    # Make sure it's a file, not in a subdirectory
                     if file_path.is_file():
                         filename = file_path.name
-                        # Skip if it's an excluded file
                         if filename in excluded_files or filename.endswith('.py'):
                             continue
                         found_files.append(str(file_path))
         else:
-            # For specific directories like 'documents', scan recursively
             for ext in supported_extensions:
                 for file_path in dir_path.rglob(f"*{ext}"):
-                    # Check if path contains any excluded directory
                     path_str = str(file_path)
                     skip = False
                     for excluded in excluded_dirs:
@@ -114,24 +87,12 @@ def scan_documents(directories=None):
                     if skip:
                         continue
                     
-                    # Skip excluded files and Python files
                     if file_path.name in excluded_files or file_path.suffix == '.py':
                         continue
                     
                     found_files.append(str(file_path))
     
-    # Remove duplicates and sort
-    found_files = sorted(set(found_files))
-    
-    # Final safety check - remove any file that looks suspicious
-    clean_files = []
-    for file in found_files:
-        # Additional safety checks
-        if any(excluded in file for excluded in ['site-packages', 'dist-info', '__pycache__', '/env/', '/venv/']):
-            continue
-        clean_files.append(file)
-    
-    return clean_files
+    return sorted(set(found_files))
 
 def get_file_hash(filepath):
     """Generate hash for file content"""
@@ -168,8 +129,15 @@ def load_document(filepath):
 
 def main():
     print("=" * 60)
-    print("🚀 PRE-BUILD VECTOR CACHE FOR STREAMLIT DEPLOYMENT")
+    print("🚀 PRE-BUILD VECTOR CACHE WITH QWEN EMBEDDINGS")
     print("=" * 60)
+    
+    # Check for HF token
+    hf_token = check_hf_token()
+    if not hf_token:
+        return
+    
+    print("✅ HF_TOKEN found")
     
     # Create output directory
     output_dir = Path("prebuilt_vectors")
@@ -185,15 +153,21 @@ def main():
         # Create a sample file
         sample_file = Path("documents") / "sample.txt"
         if not sample_file.exists():
-            sample_file.write_text("""Sample Document for RAG Chatbot
+            sample_file.write_text("""Sample Document for RAG Chatbot with Qwen Embeddings
 
-This is a sample document to test the RAG system.
+This document tests the RAG system using Qwen3-Embedding-8B model.
 
 Key Features:
-- Document processing
-- Vector embeddings
+- Advanced 8B parameter embedding model
+- 1536-dimensional embeddings
+- Superior multilingual support
+- Better semantic understanding
+
+The Qwen embedding model provides state-of-the-art performance for:
+- Document retrieval
 - Semantic search
 - Question answering
+- Cross-lingual tasks
 
 Add your own PDF, TXT, CSV, XLSX, or DOCX files to this folder!
 """)
@@ -202,7 +176,6 @@ Add your own PDF, TXT, CSV, XLSX, or DOCX files to this folder!
     
     # Scan for documents
     print("\n🔍 Scanning for documents...")
-    print("   Excluding: env/, venv/, __pycache__, .git/, etc.")
     documents_list = scan_documents()
     
     if not documents_list:
@@ -210,29 +183,44 @@ Add your own PDF, TXT, CSV, XLSX, or DOCX files to this folder!
         print("\n💡 Please add documents to:")
         print("   - documents/ folder")
         print("   - data/ folder")
-        print("\n📊 Supported formats: PDF, TXT, CSV, XLSX, DOCX, MD")
         return
     
     print(f"\n✅ Found {len(documents_list)} documents:")
     for doc in documents_list:
-        # Show relative path for clarity
         display_path = doc.replace(os.getcwd() + os.sep, "")
         print(f"  📄 {display_path}")
     
-    # Confirm before processing
     print(f"\n📊 Will process {len(documents_list)} files")
     
-    # Initialize components
-    print("\n🔧 Initializing embeddings model...")
-    embeddings = HuggingFaceEmbeddings(
-        model_name="sentence-transformers/all-MiniLM-L6-v2",
-        model_kwargs={'device': 'cpu'},
-        encode_kwargs={'normalize_embeddings': True}
-    )
+    # Initialize Qwen embeddings
+    print("\n🔧 Initializing Qwen embeddings...")
+    print("   Model: Qwen/Qwen3-Embedding-8B")
+    print("   Provider: Nebius (via Hugging Face)")
     
+    try:
+        embeddings = QwenEmbeddings(
+            api_key=hf_token,
+            model_name="Qwen/Qwen3-Embedding-8B",
+            provider="nebius",
+            batch_size=16,  # Smaller batch for API calls
+            max_retries=3
+        )
+        print("✅ Qwen embeddings initialized")
+        
+        # Test embeddings
+        test_text = "Test embedding"
+        test_result = embeddings.embed_query(test_text)
+        print(f"✅ Test embedding successful: {len(test_result)} dimensions")
+        
+    except Exception as e:
+        print(f"❌ Failed to initialize Qwen embeddings: {e}")
+        print("\n💡 Make sure your HF_TOKEN is valid and has access to the model")
+        return
+    
+    # Text splitter with optimized settings for Qwen
     text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=800,
-        chunk_overlap=100,
+        chunk_size=1000,  # Larger chunks for better context
+        chunk_overlap=150,  # More overlap for continuity
         separators=["\n\n", "\n", ".", "!", "?", ",", " ", ""],
         length_function=len
     )
@@ -243,7 +231,9 @@ Add your own PDF, TXT, CSV, XLSX, or DOCX files to this folder!
         "documents": [],
         "created_at": datetime.now().isoformat(),
         "total_chunks": 0,
-        "model": "sentence-transformers/all-MiniLM-L6-v2"
+        "model": "Qwen/Qwen3-Embedding-8B",
+        "embedding_dimension": 1536,
+        "provider": "nebius"
     }
     
     for filepath in documents_list:
@@ -276,13 +266,35 @@ Add your own PDF, TXT, CSV, XLSX, or DOCX files to this folder!
     
     if not all_texts:
         print("\n❌ No text content extracted!")
-        print("💡 Check that your documents contain readable text")
         return
     
-    # Create FAISS vector store
+    # Create FAISS vector store with Qwen embeddings
     print(f"\n🔨 Building FAISS index with {len(all_texts)} chunks...")
-    print("   This may take a moment...")
-    vectorstore = FAISS.from_documents(all_texts, embeddings)
+    print("⏳ This may take a while due to API calls...")
+    
+    try:
+        # Process in smaller batches to show progress
+        batch_size = 50
+        vectorstore = None
+        
+        for i in range(0, len(all_texts), batch_size):
+            batch = all_texts[i:min(i+batch_size, len(all_texts))]
+            print(f"   Processing batch {i//batch_size + 1}/{(len(all_texts)-1)//batch_size + 1}...")
+            
+            if vectorstore is None:
+                # Create initial vectorstore
+                vectorstore = FAISS.from_documents(batch, embeddings)
+            else:
+                # Add to existing vectorstore
+                batch_vectorstore = FAISS.from_documents(batch, embeddings)
+                vectorstore.merge_from(batch_vectorstore)
+        
+        print("✅ FAISS index created successfully!")
+        
+    except Exception as e:
+        print(f"❌ Failed to create FAISS index: {e}")
+        print("\n💡 Check your API rate limits and token validity")
+        return
     
     # Update metadata
     metadata["total_chunks"] = len(all_texts)
@@ -294,6 +306,16 @@ Add your own PDF, TXT, CSV, XLSX, or DOCX files to this folder!
     # Save metadata
     with open(output_dir / "metadata.json", 'w') as f:
         json.dump(metadata, f, indent=2)
+    
+    # Save Qwen embeddings config
+    qwen_config = {
+        "model_name": "Qwen/Qwen3-Embedding-8B",
+        "provider": "nebius",
+        "dimension": 1536,
+        "requires_hf_token": True
+    }
+    with open(output_dir / "qwen_config.json", 'w') as f:
+        json.dump(qwen_config, f, indent=2)
     
     # Verify
     print("\n🔍 Verifying...")
@@ -309,14 +331,15 @@ Add your own PDF, TXT, CSV, XLSX, or DOCX files to this folder!
         return
     
     # Check output size
-    import shutil
     total_size = sum(f.stat().st_size for f in Path(output_dir).rglob('*') if f.is_file())
     size_mb = total_size / (1024 * 1024)
     
     print("\n" + "=" * 60)
-    print("✅ SUCCESS! Pre-built vectors created!")
+    print("✅ SUCCESS! Pre-built vectors with Qwen embeddings created!")
     print("=" * 60)
     print(f"\n📊 Statistics:")
+    print(f"  - Model: Qwen/Qwen3-Embedding-8B")
+    print(f"  - Embedding dimension: 1536")
     print(f"  - Documents processed: {len(metadata['documents'])}")
     print(f"  - Total chunks: {metadata['total_chunks']}")
     print(f"  - Output size: {size_mb:.2f} MB")
@@ -326,12 +349,14 @@ Add your own PDF, TXT, CSV, XLSX, or DOCX files to this folder!
         print("  Consider reducing chunk_size if too large for GitHub")
     
     print("\n📋 Next steps:")
-    print("1. Commit to GitHub:")
-    print("   git add prebuilt_vectors/")
-    print("   git commit -m 'Add pre-built vectors'")
+    print("1. Copy qwen_embeddings.py to your project")
+    print("2. Update streamlit_app.py to use QwenEmbeddings")
+    print("3. Commit to GitHub:")
+    print("   git add prebuilt_vectors/ qwen_embeddings.py")
+    print("   git commit -m 'Add Qwen embeddings and pre-built vectors'")
     print("   git push")
-    print("\n2. Deploy to Streamlit Cloud")
-    print("\n✨ Users will have instant access without processing!")
+    print("\n4. Add HF_TOKEN to Streamlit Secrets")
+    print("\n✨ Users will have instant access with superior Qwen embeddings!")
 
 if __name__ == "__main__":
     main()
