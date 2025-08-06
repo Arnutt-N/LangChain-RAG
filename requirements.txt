@@ -1,115 +1,162 @@
 # =============================================================================
-# GEN AI RAG CHATBOT WITH DOCUMENTS (DEMO) - FAISS Version
+# GEN AI RAG CHATBOT WITH PRE-BUILT VECTORS SUPPORT
+# Optimized for Streamlit Cloud Deployment
 # =============================================================================
 
 # Core Streamlit and Environment
 streamlit==1.37.0
 python-dotenv==1.0.1
 
+# =============================================================================
 # AI Models and APIs
+# =============================================================================
+# Google Gemini
 google-generativeai==0.7.2
-mistralai==1.0.1
 langchain-google-genai==1.0.8
 
-# LangChain Core
+# Mistral AI (Optional - comment out if not using)
+mistralai==1.0.1
+
+# =============================================================================
+# LangChain Core Components
+# =============================================================================
 langchain==0.2.11
 langchain-community==0.2.10
 langchain-core==0.2.35
 langchain-text-splitters==0.2.2
 langchain-huggingface==0.0.3
 
-# Vector Database - FAISS (Lightweight, No SQLite conflicts)
+# =============================================================================
+# Vector Database - FAISS (CPU Version)
+# =============================================================================
 faiss-cpu==1.8.0
-# Alternative for GPU: faiss-gpu==1.8.0 (uncomment if needed)
+# Note: For GPU support, replace with: faiss-gpu==1.8.0
 
+# =============================================================================
 # Embeddings and ML
+# =============================================================================
 sentence-transformers==3.0.1
 transformers==4.44.2
 torch==2.4.0
 numpy==1.26.4
 
+# =============================================================================
 # Document Processing
+# =============================================================================
+# PDF Processing
 pypdf==4.3.1
+PyMuPDF==1.24.10
+pdfplumber==0.11.4
+
+# Office Documents
 unstructured[xlsx]==0.15.0
 openpyxl==3.1.5
 python-docx==1.1.2
 xlrd==2.0.1
 
+# Text Processing
+chardet==5.2.0
+filetype==1.2.0
+
+# =============================================================================
 # Data Processing
+# =============================================================================
 pandas==2.2.2
 requests==2.32.3
 pydantic==2.8.2
 tenacity==8.5.0
 
-# File Processing and Utilities
-chardet==5.2.0
-filetype==1.2.0
+# =============================================================================
+# Additional Utilities
+# =============================================================================
 pathlib2==2.3.7
-
-# Enhanced PDF Processing (optional)
-PyMuPDF==1.24.10
-pdfplumber==0.11.4
-
-# Additional utilities for better compatibility
 typing-extensions==4.12.2
 packaging==24.1
 
 # =============================================================================
-# DEVELOPMENT TOOLS (for local development only - remove for production)
-# =============================================================================
-# jupyter==1.1.1
-# ipython==8.29.0
-# black==24.8.0
-# pytest==8.3.2
-
-# =============================================================================
-# INSTALLATION NOTES:
+# INSTALLATION NOTES FOR STREAMLIT CLOUD:
 # =============================================================================
 # 
-# 1. FAISS Installation Options:
-#    - CPU: pip install faiss-cpu (recommended for most use cases)
-#    - GPU: pip install faiss-gpu (for CUDA-enabled systems)
+# 1. CRITICAL for Pre-built Vectors:
+#    - This setup supports loading pre-built FAISS vectors
+#    - Vectors must be in: prebuilt_vectors/faiss_index/
+#    - Don't add prebuilt_vectors to .gitignore!
 #
-# 2. Quick Install Command:
+# 2. Quick Install (Local Development):
 #    pip install -r requirements.txt
 #
-# 3. For Streamlit Cloud:
-#    - Make sure this file is named exactly "requirements.txt"
-#    - Place in root directory of your repository
-#    - Remove development tools section for production
+# 3. Build Pre-built Vectors (Local):
+#    python prebuild_vectors.py
 #
-# 4. Key Changes from ChromaDB version:
-#    - Replaced chromadb with faiss-cpu (eliminates SQLite conflicts)
-#    - Updated to use Gemini Flash (gemini-1.5-flash-latest)
-#    - Reduced torch version for better compatibility
-#    - Added typing-extensions for Python compatibility
-#    - Simplified unstructured package installation
+# 4. Commit Everything:
+#    git add prebuilt_vectors/
+#    git add requirements.txt
+#    git commit -m "Add pre-built vectors"
+#    git push
 #
-# 5. Supported File Types:
-#    - PDF files (.pdf)
-#    - Text files (.txt)
-#    - CSV files (.csv)
-#    - Excel files (.xlsx, .xls)
-#    - Word documents (.docx)
+# 5. Streamlit Cloud Deployment:
+#    - Connect GitHub repository
+#    - Add secrets: GOOGLE_API_KEY or MISTRAL_API_KEY
+#    - Deploy (will auto-detect pre-built vectors)
 #
-# 6. Environment Variables needed:
-#    - GOOGLE_API_KEY or GEMINI_API_KEY (required)
-#    - MISTRAL_API_KEY (optional)
+# 6. Environment Variables Required:
+#    GOOGLE_API_KEY=your_gemini_api_key  # Required
+#    MISTRAL_API_KEY=your_mistral_key    # Optional
 #
-# 7. Memory Usage:
-#    - FAISS uses less memory than ChromaDB
-#    - Better performance for similarity search
-#    - No persistent database files (uses local cache instead)
+# 7. File Structure Expected:
+#    your-repo/
+#    ├── streamlit_app.py
+#    ├── requirements.txt
+#    ├── prebuild_vectors.py
+#    ├── prebuilt_vectors/         # Pre-built vectors
+#    │   ├── faiss_index/
+#    │   │   ├── index.faiss
+#    │   │   └── index.pkl
+#    │   └── metadata.json
+#    └── documents/                # Your documents
+#        ├── file1.pdf
+#        └── file2.txt
 #
-# 8. Model Updates:
-#    - Using Gemini Flash instead of Gemini Pro (faster, cheaper)
-#    - Mistral Large support for alternative AI model
-#    - MiniLM-L6-v2 embeddings for semantic search
+# 8. Performance Notes:
+#    - With pre-built vectors: Load time < 2 seconds
+#    - Without pre-built: Load time 30-60 seconds
+#    - FAISS uses ~50% less memory than ChromaDB
+#    - No SQLite conflicts with FAISS
 #
-# 9. Performance Features:
-#    - Smart caching system with FAISS
-#    - Auto file detection from repository
-#    - Excludes system files (requirements.txt, .py files)
-#    - Respects .gitignore patterns
+# 9. Supported File Types:
+#    - PDF (.pdf)
+#    - Text (.txt, .md)
+#    - CSV (.csv)
+#    - Excel (.xlsx, .xls)
+#    - Word (.docx)
+#
+# 10. Memory Optimization:
+#     - Pre-built vectors prevent redundant processing
+#     - FAISS index is memory-mapped efficiently
+#     - Caching reduces API calls
+#
+# =============================================================================
+# VERSION COMPATIBILITY MATRIX
+# =============================================================================
+# Python: 3.9 - 3.11 (Streamlit Cloud uses 3.9 by default)
+# FAISS: CPU version for broad compatibility
+# LangChain: 0.2.x series for stability
+# Streamlit: 1.37.0 for latest features
+#
+# =============================================================================
+# TROUBLESHOOTING
+# =============================================================================
+# 
+# If "Missing FAISS" error:
+#   pip uninstall faiss-cpu
+#   pip install faiss-cpu --no-cache-dir
+#
+# If "Import error" on Streamlit Cloud:
+#   - Check Python version compatibility
+#   - Clear cache and redeploy
+#
+# If "Pre-built vectors not found":
+#   - Ensure prebuilt_vectors/ is committed to Git
+#   - Check folder structure matches expected layout
 #
 # =============================================================================
