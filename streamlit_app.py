@@ -1,6 +1,7 @@
 """
-Gen AI RAG Chatbot with Qwen Embeddings and Pre-built Vector Support
-Complete Streamlit Application
+Gen AI RAG Chatbot with Multiple AI Models Support
+Supports: OpenAI, Gemini, Mistral, DeepSeek, Qwen, Kimi
+Complete Streamlit Application with Qwen Embeddings
 """
 
 import streamlit as st
@@ -12,8 +13,10 @@ import time
 import hashlib
 import json
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 import fnmatch
+from dataclasses import dataclass
+from enum import Enum
 
 # Load environment variables
 load_dotenv()
@@ -21,14 +24,85 @@ load_dotenv()
 # Set page configuration FIRST
 st.set_page_config(
     layout="wide", 
-    page_title="Gen AI : RAG Chatbot with Qwen Embeddings",
+    page_title="Gen AI : Multi-Model RAG Chatbot",
     page_icon="🤖",
     initial_sidebar_state="expanded"
 )
 
 # ==============================================================================
+# MODEL CONFIGURATIONS
+# ==============================================================================
+
+class ModelProvider(Enum):
+    OPENAI = "openai"
+    GEMINI = "gemini"
+    MISTRAL = "mistral"
+    DEEPSEEK = "deepseek"
+    QWEN = "qwen"
+    KIMI = "kimi"
+
+@dataclass
+class ModelConfig:
+    provider: ModelProvider
+    model_name: str
+    display_name: str
+    api_key_env: str
+    max_tokens: int = 2048
+    temperature: float = 0.1
+    requires_special_handling: bool = False
+
+# Model Configurations
+MODEL_CONFIGS = {
+    ModelProvider.OPENAI: ModelConfig(
+        provider=ModelProvider.OPENAI,
+        model_name="gpt-4-turbo-preview",
+        display_name="🎯 OpenAI GPT-4",
+        api_key_env="OPENAI_API_KEY",
+        max_tokens=4096
+    ),
+    ModelProvider.GEMINI: ModelConfig(
+        provider=ModelProvider.GEMINI,
+        model_name="gemini-1.5-flash-latest",
+        display_name="⚡ Google Gemini Flash",
+        api_key_env="GOOGLE_API_KEY",
+        max_tokens=2048
+    ),
+    ModelProvider.MISTRAL: ModelConfig(
+        provider=ModelProvider.MISTRAL,
+        model_name="mistral-large-latest",
+        display_name="🌊 Mistral Large",
+        api_key_env="MISTRAL_API_KEY",
+        max_tokens=2048
+    ),
+    ModelProvider.DEEPSEEK: ModelConfig(
+        provider=ModelProvider.DEEPSEEK,
+        model_name="deepseek-chat",
+        display_name="🔍 DeepSeek Chat",
+        api_key_env="DEEPSEEK_API_KEY",
+        max_tokens=4096
+    ),
+    ModelProvider.QWEN: ModelConfig(
+        provider=ModelProvider.QWEN,
+        model_name="qwen-max",
+        display_name="🐼 Qwen Max",
+        api_key_env="QWEN_API_KEY",
+        max_tokens=8192,
+        requires_special_handling=True
+    ),
+    ModelProvider.KIMI: ModelConfig(
+        provider=ModelProvider.KIMI,
+        model_name="moonshot-v1-8k",
+        display_name="🌙 Kimi Moonshot",
+        api_key_env="KIMI_API_KEY",
+        max_tokens=8000,
+        requires_special_handling=True
+    ),
+}
+
+# ==============================================================================
 # EARLY DEBUG INFO
 # ==============================================================================
+
 if 'debug_mode' not in st.session_state:
     st.session_state.debug_mode = False
 
@@ -58,7 +132,6 @@ def check_prebuilt_vectors():
             with open(metadata_path, 'r') as f:
                 metadata = json.load(f)
             
-            # Check if using Qwen
             if qwen_config_path.exists():
                 with open(qwen_config_path, 'r') as f:
                     qwen_config = json.load(f)
@@ -78,32 +151,33 @@ def check_prebuilt_vectors():
 def check_dependencies():
     """Check if all required packages are available"""
     missing_packages = []
-    try:
-        import google.generativeai as genai
-        from langchain_google_genai import ChatGoogleGenerativeAI
-        from langchain_community.document_loaders import PyPDFLoader, CSVLoader, TextLoader
-        from langchain.text_splitter import RecursiveCharacterTextSplitter
-        from langchain.memory import ConversationBufferMemory
-        from langchain.chains import ConversationalRetrievalChain
-        import faiss
-        from langchain_community.vectorstores import FAISS
-        from huggingface_hub import InferenceClient
-    except ImportError as e:
-        missing_package = str(e).split("'")[1] if "'" in str(e) else str(e)
-        missing_packages.append(missing_package)
+    required_packages = {
+        'google.generativeai': 'google-generativeai',
+        'openai': 'openai',
+        'mistralai': 'mistralai',
+        'langchain': 'langchain',
+        'langchain_community': 'langchain-community',
+        'faiss': 'faiss-cpu',
+        'huggingface_hub': 'huggingface-hub',
+        'requests': 'requests',
+    }
+    
+    for module, package in required_packages.items():
+        try:
+            __import__(module)
+        except ImportError:
+            missing_packages.append(package)
     
     return missing_packages
 
-# Check dependencies early
+# Check dependencies
 missing_deps = check_dependencies()
 if missing_deps:
     st.error(f"Missing packages: {', '.join(missing_deps)}")
-    st.info("""
+    st.info(f"""
     Please install with:
     ```bash
-    pip install streamlit langchain langchain-community 
-    pip install faiss-cpu google-generativeai
-    pip install huggingface-hub pypdf
+    pip install {' '.join(missing_deps)}
     ```
     """)
     st.stop()
@@ -125,22 +199,59 @@ try:
     from langchain.memory import ConversationBufferMemory
     from langchain.chains import ConversationalRetrievalChain
     from langchain.schema import Document
+    from langchain.embeddings.base import Embeddings
+    from langchain.llms.base import LLM
     import pandas as pd
     import numpy as np
     from huggingface_hub import InferenceClient
     import faiss
     from langchain_community.vectorstores import FAISS
+    import requests
+    
+    # Optional imports with graceful fallback
+    try:
+        import openai
+        from langchain_openai import ChatOpenAI
+        OPENAI_AVAILABLE = True
+    except ImportError:
+        OPENAI_AVAILABLE = False
+    
+    try:
+        from mistralai import Mistral
+        MISTRAL_AVAILABLE = True
+    except ImportError:
+        MISTRAL_AVAILABLE = False
     
 except ImportError as e:
     st.error(f"Import error: {e}")
-    st.info("Please check your requirements.txt")
     st.stop()
+
+# ==============================================================================
+# API KEY MANAGEMENT
+# ==============================================================================
+
+def get_api_key(env_name: str) -> Optional[str]:
+    """Get API key from environment or secrets"""
+    return (
+        st.secrets.get(env_name) or 
+        os.getenv(env_name)
+    )
+
+# Load all API keys
+API_KEYS = {
+    ModelProvider.OPENAI: get_api_key("OPENAI_API_KEY"),
+    ModelProvider.GEMINI: get_api_key("GOOGLE_API_KEY") or get_api_key("GEMINI_API_KEY"),
+    ModelProvider.MISTRAL: get_api_key("MISTRAL_API_KEY"),
+    ModelProvider.DEEPSEEK: get_api_key("DEEPSEEK_API_KEY"),
+    ModelProvider.QWEN: get_api_key("QWEN_API_KEY") or get_api_key("DASHSCOPE_API_KEY"),
+    ModelProvider.KIMI: get_api_key("KIMI_API_KEY") or get_api_key("MOONSHOT_API_KEY"),
+}
+
+HF_TOKEN = get_api_key("HF_TOKEN") or get_api_key("HUGGINGFACE_TOKEN")
 
 # ==============================================================================
 # QWEN EMBEDDINGS CLASS
 # ==============================================================================
-
-from langchain.embeddings.base import Embeddings
 
 class QwenEmbeddings(Embeddings):
     """Qwen embeddings wrapper for LangChain using HF Inference API"""
@@ -154,9 +265,9 @@ class QwenEmbeddings(Embeddings):
         max_retries: int = 3,
         retry_delay: float = 1.0
     ):
-        self.api_key = api_key or os.environ.get("HF_TOKEN")
+        self.api_key = api_key or HF_TOKEN
         if not self.api_key:
-            raise ValueError("HF_TOKEN not found. Set it in environment or pass api_key parameter")
+            raise ValueError("HF_TOKEN not found")
         
         self.model_name = model_name
         self.provider = provider
@@ -213,43 +324,225 @@ class QwenEmbeddings(Embeddings):
         return self._embed_with_retry(text)
 
 # ==============================================================================
-# CONFIGURATION - API KEYS
+# LLM WRAPPERS FOR DIFFERENT PROVIDERS
 # ==============================================================================
 
-GOOGLE_API_KEY = (
-    st.secrets.get("GOOGLE_API_KEY") or 
-    st.secrets.get("GEMINI_API_KEY") or 
-    os.getenv("GOOGLE_API_KEY") or 
-    os.getenv("GEMINI_API_KEY")
-)
+class DeepSeekLLM(LLM):
+    """DeepSeek LLM wrapper for LangChain"""
+    
+    def __init__(self, api_key: str, model: str = "deepseek-chat", temperature: float = 0.1, max_tokens: int = 4096):
+        super().__init__()
+        self.api_key = api_key
+        self.model = model
+        self.temperature = temperature
+        self.max_tokens = max_tokens
+        self.api_url = "https://api.deepseek.com/v1/chat/completions"
+    
+    def _call(self, prompt: str, stop: Optional[List[str]] = None) -> str:
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
+        
+        data = {
+            "model": self.model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+            "stream": False
+        }
+        
+        try:
+            response = requests.post(self.api_url, headers=headers, json=data)
+            response.raise_for_status()
+            result = response.json()
+            return result['choices'][0]['message']['content']
+        except Exception as e:
+            return f"Error calling DeepSeek API: {str(e)}"
+    
+    @property
+    def _llm_type(self) -> str:
+        return "deepseek"
 
-HF_TOKEN = (
-    st.secrets.get("HF_TOKEN") or
-    st.secrets.get("HUGGINGFACE_TOKEN") or
-    os.getenv("HF_TOKEN") or
-    os.getenv("HUGGINGFACE_TOKEN")
-)
+class QwenLLM(LLM):
+    """Qwen LLM wrapper for LangChain"""
+    
+    def __init__(self, api_key: str, model: str = "qwen-max", temperature: float = 0.1, max_tokens: int = 8192):
+        super().__init__()
+        self.api_key = api_key
+        self.model = model
+        self.temperature = temperature
+        self.max_tokens = max_tokens
+        self.api_url = "https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation"
+    
+    def _call(self, prompt: str, stop: Optional[List[str]] = None) -> str:
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
+        
+        data = {
+            "model": self.model,
+            "input": {
+                "messages": [{"role": "user", "content": prompt}]
+            },
+            "parameters": {
+                "temperature": self.temperature,
+                "max_tokens": self.max_tokens
+            }
+        }
+        
+        try:
+            response = requests.post(self.api_url, headers=headers, json=data)
+            response.raise_for_status()
+            result = response.json()
+            return result['output']['text']
+        except Exception as e:
+            return f"Error calling Qwen API: {str(e)}"
+    
+    @property
+    def _llm_type(self) -> str:
+        return "qwen"
 
-MISTRAL_API_KEY = (
-    st.secrets.get("MISTRAL_API_KEY") or 
-    os.getenv("MISTRAL_API_KEY")
-)
+class KimiLLM(LLM):
+    """Kimi/Moonshot LLM wrapper for LangChain"""
+    
+    def __init__(self, api_key: str, model: str = "moonshot-v1-8k", temperature: float = 0.1, max_tokens: int = 8000):
+        super().__init__()
+        self.api_key = api_key
+        self.model = model
+        self.temperature = temperature
+        self.max_tokens = max_tokens
+        self.api_url = "https://api.moonshot.cn/v1/chat/completions"
+    
+    def _call(self, prompt: str, stop: Optional[List[str]] = None) -> str:
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
+        
+        data = {
+            "model": self.model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+            "stream": False
+        }
+        
+        try:
+            response = requests.post(self.api_url, headers=headers, json=data)
+            response.raise_for_status()
+            result = response.json()
+            return result['choices'][0]['message']['content']
+        except Exception as e:
+            return f"Error calling Kimi API: {str(e)}"
+    
+    @property
+    def _llm_type(self) -> str:
+        return "kimi"
 
-# Check if at least Google API key is available
-if not GOOGLE_API_KEY:
-    st.error("🚨 No Google API Key found!")
-    st.info("""
-    **Setup Google Gemini API:**
-    1. Go to https://makersuite.google.com/app/apikey
-    2. Create API key
-    3. Add to Streamlit secrets as GOOGLE_API_KEY
-    """)
-    st.stop()
+class MistralLLM(LLM):
+    """Mistral LLM wrapper for LangChain"""
+    
+    def __init__(self, api_key: str, model: str = "mistral-large-latest", temperature: float = 0.1, max_tokens: int = 2048):
+        super().__init__()
+        if not MISTRAL_AVAILABLE:
+            raise ImportError("mistralai package not installed")
+        self.client = Mistral(api_key=api_key)
+        self.model = model
+        self.temperature = temperature
+        self.max_tokens = max_tokens
+    
+    def _call(self, prompt: str, stop: Optional[List[str]] = None) -> str:
+        try:
+            response = self.client.chat.complete(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=self.temperature,
+                max_tokens=self.max_tokens
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            return f"Error calling Mistral API: {str(e)}"
+    
+    @property
+    def _llm_type(self) -> str:
+        return "mistral"
 
-# Configure APIs
-if GOOGLE_API_KEY:
-    os.environ["GOOGLE_API_KEY"] = GOOGLE_API_KEY
-    genai.configure(api_key=GOOGLE_API_KEY)
+# ==============================================================================
+# LLM FACTORY
+# ==============================================================================
+
+def create_llm(provider: ModelProvider, config: ModelConfig) -> Optional[Union[LLM, Any]]:
+    """Factory function to create appropriate LLM based on provider"""
+    
+    api_key = API_KEYS.get(provider)
+    if not api_key:
+        st.error(f"❌ No API key found for {config.display_name}")
+        st.info(f"Please set {config.api_key_env} in environment variables or Streamlit secrets")
+        return None
+    
+    try:
+        if provider == ModelProvider.OPENAI:
+            if not OPENAI_AVAILABLE:
+                st.error("OpenAI package not installed. Run: pip install openai langchain-openai")
+                return None
+            return ChatOpenAI(
+                model=config.model_name,
+                temperature=config.temperature,
+                max_tokens=config.max_tokens,
+                openai_api_key=api_key
+            )
+        
+        elif provider == ModelProvider.GEMINI:
+            os.environ["GOOGLE_API_KEY"] = api_key
+            genai.configure(api_key=api_key)
+            return ChatGoogleGenerativeAI(
+                model=config.model_name,
+                temperature=config.temperature,
+                max_tokens=config.max_tokens,
+                google_api_key=api_key
+            )
+        
+        elif provider == ModelProvider.MISTRAL:
+            return MistralLLM(
+                api_key=api_key,
+                model=config.model_name,
+                temperature=config.temperature,
+                max_tokens=config.max_tokens
+            )
+        
+        elif provider == ModelProvider.DEEPSEEK:
+            return DeepSeekLLM(
+                api_key=api_key,
+                model=config.model_name,
+                temperature=config.temperature,
+                max_tokens=config.max_tokens
+            )
+        
+        elif provider == ModelProvider.QWEN:
+            return QwenLLM(
+                api_key=api_key,
+                model=config.model_name,
+                temperature=config.temperature,
+                max_tokens=config.max_tokens
+            )
+        
+        elif provider == ModelProvider.KIMI:
+            return KimiLLM(
+                api_key=api_key,
+                model=config.model_name,
+                temperature=config.temperature,
+                max_tokens=config.max_tokens
+            )
+        
+        else:
+            st.error(f"Unsupported provider: {provider}")
+            return None
+            
+    except Exception as e:
+        st.error(f"Error creating LLM for {config.display_name}: {str(e)}")
+        return None
 
 # ==============================================================================
 # TRANSLATIONS
@@ -257,32 +550,38 @@ if GOOGLE_API_KEY:
 
 translations = {
     "en": {
-        "title": "🤖 Gen AI : RAG Chatbot with Qwen Embeddings",
+        "title": "🤖 Multi-Model RAG Chatbot",
+        "subtitle": "Supports OpenAI, Gemini, Mistral, DeepSeek, Qwen, Kimi",
         "upload_button": "Upload Additional Documents",
-        "ask_placeholder": "Ask a question in Thai or English...",
+        "ask_placeholder": "Ask a question in any language...",
         "processing": "Processing documents...",
         "thinking": "🧠 Generating response...",
         "language": "Language / ภาษา",
         "clear_chat": "🗑️ Clear Chat",
-        "model_info": "Model: Gemini Flash | Embeddings: Qwen3-8B | Vector DB: FAISS",
+        "select_model": "Select AI Model",
+        "model_status": "Model Status",
+        "available_models": "Available Models",
+        "missing_api_key": "Missing API Key",
+        "embeddings_info": "Embeddings: Qwen3-8B (1536 dims)",
         "using_prebuilt": "✅ Using pre-built vector database",
-        "using_qwen": "🚀 Using Qwen3-Embedding-8B (1536 dims)",
-        "using_minilm": "📊 Using MiniLM-L6-v2 (384 dims)",
-        "no_hf_token": "⚠️ HF_TOKEN not found - Using fallback embeddings",
+        "no_models": "❌ No AI models configured. Please add API keys.",
     },
     "th": {
-        "title": "🤖 Gen AI : RAG แชทกับเอกสาร (Qwen Embeddings)",
+        "title": "🤖 RAG แชทบอทหลายโมเดล",
+        "subtitle": "รองรับ OpenAI, Gemini, Mistral, DeepSeek, Qwen, Kimi",
         "upload_button": "อัปโหลดเอกสารเพิ่มเติม",
-        "ask_placeholder": "ถามคำถามเป็นภาษาไทยหรืออังกฤษ...",
+        "ask_placeholder": "ถามคำถามได้ทุกภาษา...",
         "processing": "กำลังประมวลผลเอกสาร...",
         "thinking": "🧠 กำลังสร้างคำตอบ...",
         "language": "ภาษา / Language",
         "clear_chat": "🗑️ ล้างการแชท",
-        "model_info": "โมเดล: Gemini Flash | Embeddings: Qwen3-8B | Vector DB: FAISS",
+        "select_model": "เลือกโมเดล AI",
+        "model_status": "สถานะโมเดล",
+        "available_models": "โมเดลที่ใช้ได้",
+        "missing_api_key": "ไม่มี API Key",
+        "embeddings_info": "Embeddings: Qwen3-8B (1536 มิติ)",
         "using_prebuilt": "✅ ใช้ vector database ที่สร้างไว้แล้ว",
-        "using_qwen": "🚀 ใช้ Qwen3-Embedding-8B (1536 มิติ)",
-        "using_minilm": "📊 ใช้ MiniLM-L6-v2 (384 มิติ)",
-        "no_hf_token": "⚠️ ไม่พบ HF_TOKEN - ใช้ embeddings สำรอง",
+        "no_models": "❌ ไม่มีโมเดล AI กรุณาเพิ่ม API keys",
     }
 }
 
@@ -300,13 +599,15 @@ def init_session_state():
         "documents_processed": False,
         "document_chunks": 0,
         "debug_mode": False,
-        "similarity_threshold": 0.7,
-        "max_tokens": 512,
+        "selected_model": ModelProvider.GEMINI,
         "temperature": 0.1,
+        "max_tokens": 2048,
         "using_prebuilt": False,
         "prebuilt_metadata": None,
         "embeddings_type": None,
         "embeddings": None,
+        "available_models": [],
+        "current_llm": None,
     }
     
     for key, value in defaults.items():
@@ -314,6 +615,23 @@ def init_session_state():
             st.session_state[key] = value
 
 init_session_state()
+
+# ==============================================================================
+# CHECK AVAILABLE MODELS
+# ==============================================================================
+
+def check_available_models() -> List[ModelProvider]:
+    """Check which models have API keys configured"""
+    available = []
+    for provider, api_key in API_KEYS.items():
+        if api_key:
+            # Additional checks for package availability
+            if provider == ModelProvider.OPENAI and not OPENAI_AVAILABLE:
+                continue
+            if provider == ModelProvider.MISTRAL and not MISTRAL_AVAILABLE:
+                continue
+            available.append(provider)
+    return available
 
 # ==============================================================================
 # EMBEDDINGS MANAGEMENT
@@ -336,11 +654,10 @@ def get_embeddings(use_qwen: bool = True):
             return embeddings
         except Exception as e:
             st.warning(f"Failed to initialize Qwen embeddings: {e}")
-            st.info("Falling back to HuggingFace embeddings...")
     
-    # Fallback to HuggingFace embeddings
+    # Fallback to sentence-transformers
     try:
-        from langchain_community.embeddings import HuggingFaceEmbeddings
+        from langchain_huggingface import HuggingFaceEmbeddings
         embeddings = HuggingFaceEmbeddings(
             model_name="sentence-transformers/all-MiniLM-L6-v2",
             model_kwargs={'device': 'cpu'},
@@ -356,16 +673,13 @@ def get_embeddings(use_qwen: bool = True):
 def load_prebuilt_vectors():
     """Load pre-built vectors from repository"""
     try:
-        # Check if Qwen was used for pre-built vectors
         qwen_config_path = PREBUILT_VECTORS_DIR / "qwen_config.json"
         use_qwen = qwen_config_path.exists()
         
-        # Get appropriate embeddings
         embeddings = get_embeddings(use_qwen=use_qwen)
         if not embeddings:
             return None, None
         
-        # Load FAISS index
         index_path = str(PREBUILT_VECTORS_DIR / "faiss_index")
         vectorstore = FAISS.load_local(
             index_path,
@@ -384,12 +698,12 @@ def load_prebuilt_vectors():
 
 def scan_local_files():
     """Scan repository for document files"""
-    supported_extensions = ('.pdf', '.txt', '.csv', '.xlsx', '.xls', '.docx')
+    supported_extensions = ('.pdf', '.txt', '.csv', '.xlsx', '.xls', '.docx', '.md')
     local_files = []
     
-    excluded_files = ['requirements.txt', 'README.md', '.env', 'streamlit_app.py']
+    excluded_files = ['requirements.txt', '.env', 'streamlit_app.py']
     excluded_dirs = ['.git', '__pycache__', 'venv', 'env', '.streamlit', 
-                     'vector_cache', 'prebuilt_vectors']
+                     'vector_cache', 'prebuilt_vectors', 'models']
     
     try:
         for root, dirs, files in os.walk('.'):
@@ -426,7 +740,6 @@ def load_document(filepath: str) -> List[Document]:
         
         docs = loader.load()
         
-        # Add metadata
         for doc in docs:
             doc.metadata['source'] = filepath
             doc.metadata['file_type'] = 'local'
@@ -461,13 +774,6 @@ def process_documents(files: List[str], show_progress: bool = True) -> bool:
                     
                     t = translations[st.session_state.language]
                     st.success(t["using_prebuilt"])
-                    
-                    # Show embedding type
-                    if metadata.get('qwen_config'):
-                        st.info(t["using_qwen"])
-                    else:
-                        st.info(t["using_minilm"])
-                    
                     return True
     
     # Process documents dynamically
@@ -521,14 +827,6 @@ def process_documents(files: List[str], show_progress: bool = True) -> bool:
             progress_bar.empty()
         
         st.success(f"✅ Processed {len(texts)} chunks from {len(files)} documents")
-        
-        # Show embedding type
-        t = translations[st.session_state.language]
-        if st.session_state.embeddings_type == "qwen":
-            st.info(t["using_qwen"])
-        else:
-            st.info(t["using_minilm"])
-        
         return True
         
     except Exception as e:
@@ -565,11 +863,6 @@ def auto_load_documents():
                 
                 t = translations[st.session_state.language]
                 st.success(t["using_prebuilt"])
-                
-                if metadata.get('qwen_config'):
-                    st.info(f"🚀 Embeddings: Qwen3-8B ({metadata['qwen_config']['dimension']} dims)")
-                else:
-                    st.info(f"📊 Embeddings: {metadata.get('model', 'Unknown')}")
                 return
     
     # Scan for local files
@@ -588,18 +881,20 @@ def auto_load_documents():
 # ==============================================================================
 
 def setup_qa_chain():
-    """Setup QA chain with vector store"""
+    """Setup QA chain with selected model"""
     if not st.session_state.vectorstore:
         return None
     
     try:
-        # Initialize LLM (Gemini)
-        llm = ChatGoogleGenerativeAI(
-            model="gemini-1.5-flash-latest",
-            temperature=st.session_state.temperature,
-            max_tokens=st.session_state.max_tokens,
-            google_api_key=GOOGLE_API_KEY,
-        )
+        # Get selected model config
+        config = MODEL_CONFIGS[st.session_state.selected_model]
+        
+        # Create LLM
+        llm = create_llm(st.session_state.selected_model, config)
+        if not llm:
+            return None
+        
+        st.session_state.current_llm = llm
         
         # Create retriever
         retriever = st.session_state.vectorstore.as_retriever(
@@ -650,29 +945,71 @@ def display_sidebar():
         
         st.divider()
         
+        # Model selection
+        st.markdown(f"### 🤖 {t['select_model']}")
+        
+        available_models = check_available_models()
+        st.session_state.available_models = available_models
+        
+        if available_models:
+            model_options = [MODEL_CONFIGS[m].display_name for m in available_models]
+            model_values = list(available_models)
+            
+            # Default selection
+            default_index = 0
+            if st.session_state.selected_model in available_models:
+                default_index = available_models.index(st.session_state.selected_model)
+            
+            selected_display = st.selectbox(
+                "Choose Model",
+                options=model_options,
+                index=default_index,
+                label_visibility="collapsed"
+            )
+            
+            # Update selected model
+            selected_index = model_options.index(selected_display)
+            st.session_state.selected_model = model_values[selected_index]
+            
+            # Show model info
+            config = MODEL_CONFIGS[st.session_state.selected_model]
+            st.info(f"""
+            **Model:** {config.model_name}
+            **Max Tokens:** {config.max_tokens}
+            """)
+        else:
+            st.error(t["no_models"])
+        
+        # Model status
+        with st.expander(f"📊 {t['model_status']}", expanded=False):
+            st.markdown(f"**{t['available_models']}:**")
+            for provider in ModelProvider:
+                config = MODEL_CONFIGS[provider]
+                if API_KEYS.get(provider):
+                    st.success(f"✅ {config.display_name}")
+                else:
+                    st.error(f"❌ {config.display_name}")
+                    st.caption(f"Set {config.api_key_env}")
+        
+        st.divider()
+        
         # Debug mode
         st.session_state.debug_mode = st.checkbox("🔍 Debug Mode")
         
         # Display vector info
         if st.session_state.using_prebuilt:
-            with st.expander("🚀 Pre-built Vectors", expanded=True):
+            with st.expander("🚀 Pre-built Vectors", expanded=False):
                 if st.session_state.prebuilt_metadata:
                     meta = st.session_state.prebuilt_metadata
-                    st.write(f"**Created:** {meta.get('created_at', 'Unknown')[:19]}")
                     st.write(f"**Chunks:** {meta.get('total_chunks', 0)}")
                     st.write(f"**Docs:** {len(meta.get('documents', []))}")
-                    
-                    if meta.get('qwen_config'):
-                        st.success("Using Qwen Embeddings")
-                        st.write(f"Dimension: {meta['qwen_config']['dimension']}")
-                    else:
-                        st.info(f"Model: {meta.get('model', 'Unknown')}")
         
         # HF Token status
         if HF_TOKEN:
             st.success("✅ HF_TOKEN configured")
+            st.caption(t["embeddings_info"])
         else:
-            st.warning(t["no_hf_token"])
+            st.warning("⚠️ No HF_TOKEN (using fallback embeddings)")
         
         st.divider()
         
@@ -681,31 +1018,32 @@ def display_sidebar():
         uploaded_files = st.file_uploader(
             "Upload",
             accept_multiple_files=True,
-            type=['pdf', 'csv', 'txt', 'xlsx', 'xls'],
+            type=['pdf', 'csv', 'txt', 'xlsx', 'xls', 'docx', 'md'],
             label_visibility="collapsed"
         )
         
         if uploaded_files:
             st.warning("Note: Uploaded files will override pre-built vectors")
             if st.button("Process Uploads"):
-                # Process uploaded files logic here
                 st.info("Upload processing not implemented in this version")
         
         # Settings
         with st.expander("⚙️ Settings"):
+            config = MODEL_CONFIGS[st.session_state.selected_model]
+            
             st.session_state.temperature = st.slider(
                 "Temperature",
                 min_value=0.0,
                 max_value=1.0,
-                value=st.session_state.temperature,
+                value=config.temperature,
                 step=0.1
             )
             
             st.session_state.max_tokens = st.slider(
                 "Max Tokens",
                 min_value=128,
-                max_value=2048,
-                value=st.session_state.max_tokens,
+                max_value=config.max_tokens,
+                value=min(2048, config.max_tokens),
                 step=128
             )
         
@@ -720,8 +1058,7 @@ def display_sidebar():
             st.divider()
             st.markdown("### 📊 Statistics")
             st.write(f"Chunks: {st.session_state.document_chunks}")
-            if st.session_state.embeddings_type:
-                st.write(f"Embeddings: {st.session_state.embeddings_type}")
+            st.write(f"Embeddings: {st.session_state.embeddings_type}")
             st.write(f"Messages: {len(st.session_state.messages)}")
 
 # ==============================================================================
@@ -743,16 +1080,49 @@ def main():
         .stTitle {
             text-align: center;
             color: #1f77b4;
+            margin-bottom: 1rem;
+        }
+        .subtitle {
+            text-align: center;
+            color: #666;
+            font-size: 0.9rem;
             margin-bottom: 2rem;
+        }
+        .model-badge {
+            display: inline-block;
+            padding: 0.25rem 0.5rem;
+            margin: 0.2rem;
+            border-radius: 0.25rem;
+            font-size: 0.85rem;
+            font-weight: 500;
+        }
+        .model-available {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .model-unavailable {
+            background-color: #f8d7da;
+            color: #721c24;
         }
         </style>
     """, unsafe_allow_html=True)
     
     # Title
-    st.title(t["title"])
+    st.markdown(f'<h1 class="stTitle">{t["title"]}</h1>', unsafe_allow_html=True)
+    st.markdown(f'<p class="subtitle">{t["subtitle"]}</p>', unsafe_allow_html=True)
     
-    # Model info
-    st.info(f"ℹ️ {t['model_info']}")
+    # Display available models as badges
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        available_models = check_available_models()
+        badges_html = ""
+        for provider in ModelProvider:
+            config = MODEL_CONFIGS[provider]
+            if provider in available_models:
+                badges_html += f'<span class="model-badge model-available">{config.display_name.split()[1]}</span>'
+            else:
+                badges_html += f'<span class="model-badge model-unavailable">{config.display_name.split()[1]}</span>'
+        st.markdown(badges_html, unsafe_allow_html=True)
     
     # Display sidebar
     display_sidebar()
@@ -762,6 +1132,11 @@ def main():
     
     # Main chat interface
     if st.session_state.documents_processed and st.session_state.document_chunks > 0:
+        
+        # Check if we have available models
+        if not st.session_state.available_models:
+            st.error(t["no_models"])
+            st.stop()
         
         # Setup QA chain
         if 'qa_chain' not in st.session_state or st.session_state.qa_chain is None:
@@ -781,9 +1156,17 @@ def main():
             
             # Generate response
             with st.chat_message("assistant"):
+                # Check if we need to recreate the chain (model changed)
+                if st.session_state.qa_chain is None:
+                    st.session_state.qa_chain = setup_qa_chain()
+                
                 if st.session_state.qa_chain:
                     with st.spinner(t["thinking"]):
                         try:
+                            # Show which model is being used
+                            config = MODEL_CONFIGS[st.session_state.selected_model]
+                            st.caption(f"Using: {config.display_name}")
+                            
                             response = st.session_state.qa_chain.invoke({"question": prompt})
                             answer = response.get('answer', 'No answer generated')
                             
@@ -801,6 +1184,11 @@ def main():
                             
                         except Exception as e:
                             st.error(f"Error: {str(e)}")
+                            # Try to provide more specific error info
+                            if "rate limit" in str(e).lower():
+                                st.info("💡 Try switching to a different model or wait a moment")
+                            elif "api key" in str(e).lower():
+                                st.info(f"💡 Check your API key for {config.display_name}")
                 else:
                     st.error("QA chain not initialized")
     
@@ -814,6 +1202,8 @@ def main():
             1. Add documents to your repository
             2. Or create pre-built vectors with `prebuild_vectors_qwen.py`
             3. Or upload documents using the sidebar
+            
+            **Available Models:** Check the sidebar for model status
             """)
         
         # Show debug info if enabled
@@ -824,13 +1214,12 @@ def main():
                 st.write(f"Chunks: {st.session_state.document_chunks}")
                 st.write(f"Vector store: {'Yes' if st.session_state.vectorstore else 'No'}")
                 st.write(f"HF_TOKEN: {'Yes' if HF_TOKEN else 'No'}")
-                st.write(f"Embeddings type: {st.session_state.embeddings_type}")
+                st.write(f"Available models: {[m.value for m in st.session_state.available_models]}")
                 
-                # Check pre-built
-                has_prebuilt, meta = check_prebuilt_vectors()
-                st.write(f"Pre-built vectors: {'Yes' if has_prebuilt else 'No'}")
-                if has_prebuilt and meta:
-                    st.json(meta)
+                # API Keys status
+                st.write("\n**API Keys Status:**")
+                for provider, key in API_KEYS.items():
+                    st.write(f"- {provider.value}: {'✅' if key else '❌'}")
 
 # ==============================================================================
 # RUN APPLICATION

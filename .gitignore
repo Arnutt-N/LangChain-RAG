@@ -34,3 +34,5 @@ Thumbs.db
 app_copy.py
 database_handler.py
 document_loader.py
+
+archives/
